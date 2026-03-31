@@ -42,16 +42,24 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
 # Each feature is a dict with 'name', 'compute' function reference, and 'params'.
 
 def compute_returns(df: pd.DataFrame, periods: list[int]) -> pd.DataFrame:
-    """Compute log returns over multiple periods."""
+    """Compute log returns over multiple periods using PREVIOUS day's close.
+
+    All features are shifted by 1 day: we use Close_{T-1} as the most recent
+    price available when predicting day T's direction.
+    """
     features = pd.DataFrame(index=df.index)
+    prev_close = df["Close"].shift(1)  # yesterday's close
     for p in periods:
-        features[f"return_{p}d"] = np.log(df["Close"] / df["Close"].shift(p))
+        features[f"return_{p}d"] = np.log(prev_close / df["Close"].shift(p))
     return features
 
 
 def compute_volatility(df: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
-    """Compute rolling volatility (std of daily returns)."""
-    daily_ret = np.log(df["Close"] / df["Close"].shift(1))
+    """Compute rolling volatility using PREVIOUS day's returns.
+
+    Uses returns ending at T-1 (not including today's return).
+    """
+    daily_ret = np.log(df["Close"].shift(1) / df["Close"].shift(2))
     features = pd.DataFrame(index=df.index)
     for w in windows:
         features[f"volatility_{w}d"] = daily_ret.rolling(w).std()
@@ -59,34 +67,46 @@ def compute_volatility(df: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
 
 
 def compute_volume_features(df: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
-    """Compute volume-based features."""
+    """Compute volume-based features using PREVIOUS day's volume.
+
+    Today's volume isn't known until market close (same time as target).
+    """
     features = pd.DataFrame(index=df.index)
+    prev_volume = df["Volume"].shift(1)
     for w in windows:
-        features[f"volume_ratio_{w}d"] = df["Volume"] / df["Volume"].rolling(w).mean()
+        features[f"volume_ratio_{w}d"] = prev_volume / df["Volume"].shift(1).rolling(w).mean()
     return features
 
 
 def compute_price_position(df: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
-    """Compute price position within rolling high-low range."""
+    """Compute price position within rolling high-low range using PREVIOUS day.
+
+    Uses Close_{T-1} relative to High/Low range ending at T-1.
+    """
     features = pd.DataFrame(index=df.index)
+    prev_close = df["Close"].shift(1)
     for w in windows:
-        rolling_high = df["High"].rolling(w).max()
-        rolling_low = df["Low"].rolling(w).min()
+        rolling_high = df["High"].shift(1).rolling(w).max()
+        rolling_low = df["Low"].shift(1).rolling(w).min()
         rng = rolling_high - rolling_low
         features[f"price_position_{w}d"] = np.where(
             rng > 0,
-            (df["Close"] - rolling_low) / rng,
+            (prev_close - rolling_low) / rng,
             0.5,
         )
     return features
 
 
 def compute_moving_average_features(df: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
-    """Compute price relative to moving averages."""
+    """Compute price relative to moving averages using PREVIOUS day's close.
+
+    Uses Close_{T-1} vs MA of closes ending at T-1.
+    """
     features = pd.DataFrame(index=df.index)
+    prev_close = df["Close"].shift(1)
     for w in windows:
-        ma = df["Close"].rolling(w).mean()
-        features[f"price_vs_ma_{w}d"] = (df["Close"] - ma) / ma
+        ma = df["Close"].shift(1).rolling(w).mean()
+        features[f"price_vs_ma_{w}d"] = (prev_close - ma) / ma
     return features
 
 
