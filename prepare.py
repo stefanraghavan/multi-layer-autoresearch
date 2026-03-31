@@ -91,16 +91,22 @@ def compute_moving_average_features(df: pd.DataFrame, windows: list[int]) -> pd.
 
 
 def compute_gap(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute overnight gap (open vs previous close)."""
+    """Compute overnight gap (previous day's open vs day-before close).
+
+    Shifted by 1 day to avoid using same-day data as the target.
+    """
     features = pd.DataFrame(index=df.index)
-    features["overnight_gap"] = np.log(df["Open"] / df["Close"].shift(1))
+    features["overnight_gap"] = np.log(df["Open"].shift(1) / df["Close"].shift(2))
     return features
 
 
 def compute_intraday_range(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute intraday range as fraction of close."""
+    """Compute intraday range as fraction of close (previous day).
+
+    Shifted by 1 day to avoid using same-day data as the target.
+    """
     features = pd.DataFrame(index=df.index)
-    features["intraday_range"] = (df["High"] - df["Low"]) / df["Close"]
+    features["intraday_range"] = (df["High"].shift(1) - df["Low"].shift(1)) / df["Close"].shift(1)
     return features
 
 
@@ -112,8 +118,8 @@ def compute_all_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     parts = []
 
-    # Returns at multiple horizons
-    parts.append(compute_returns(df, periods=[1, 2, 3, 5, 10, 20]))
+    # Returns at multiple horizons (exclude 1d — it IS the target)
+    parts.append(compute_returns(df, periods=[2, 3, 5, 10, 20]))
 
     # Volatility at multiple windows
     parts.append(compute_volatility(df, windows=[5, 10, 20, 60]))
