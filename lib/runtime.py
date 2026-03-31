@@ -50,34 +50,62 @@ def generate_runtime_claude_md(rt_dir: Path) -> None:
     (rt_dir / "CLAUDE.md").write_text(_default_claude_template())
 
 
-def initialize_runtime() -> Path:
-    """Initialize the runtime environment with baseline skills and directory structure."""
+def initialize_runtime(reset: bool = False) -> Path:
+    """Initialize the runtime environment.
+
+    On first run: copies baseline skills, train.py, prepare.py into runtime.
+    On subsequent runs: preserves evolved skills and code (postmortem improvements
+    accumulate across runs). Only resets if reset=True or RESET_RUNTIME=true.
+
+    Runtime lives at ~/multi-layer-autoresearch-data/runtime/ (outside the repo).
+    """
+    import os
+    reset = reset or os.environ.get("RESET_RUNTIME", "false").strip().lower() in {"1", "true", "yes"}
+
     rt_dir = runtime_dir()
+    is_fresh = not rt_dir.exists()
     rt_dir.mkdir(parents=True, exist_ok=True)
 
     for subdir in ("workspace", "traces", "data"):
         (rt_dir / subdir).mkdir(exist_ok=True)
 
-    # Copy baseline skills into runtime
     src_skills = source_skills_dir()
     dst_skills = runtime_skills_dir()
     dst_skills.parent.mkdir(parents=True, exist_ok=True)
 
-    for skill_dir in sorted(src_skills.iterdir()):
-        if not skill_dir.is_dir():
-            continue
-        target = dst_skills / skill_dir.name
-        if target.exists():
-            shutil.rmtree(target)
-        shutil.copytree(skill_dir, target)
+    if is_fresh or reset:
+        # First run or explicit reset: copy baseline skills
+        for skill_dir in sorted(src_skills.iterdir()):
+            if not skill_dir.is_dir():
+                continue
+            target = dst_skills / skill_dir.name
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(skill_dir, target)
 
-    # Copy train.py and prepare.py into runtime
-    from lib.paths import repo_dir
-    for filename in ("train.py", "prepare.py"):
-        src = repo_dir() / filename
-        dst = rt_dir / filename
-        if src.exists():
-            shutil.copy2(src, dst)
+        # Copy train.py and prepare.py into runtime
+        from lib.paths import repo_dir
+        for filename in ("train.py", "prepare.py"):
+            src = repo_dir() / filename
+            dst = rt_dir / filename
+            if src.exists():
+                shutil.copy2(src, dst)
+    else:
+        # Subsequent run: only copy skills/code that don't exist yet
+        # (preserves evolved skills from postmortems)
+        for skill_dir in sorted(src_skills.iterdir()):
+            if not skill_dir.is_dir():
+                continue
+            target = dst_skills / skill_dir.name
+            if not target.exists():
+                shutil.copytree(skill_dir, target)
+
+        from lib.paths import repo_dir
+        for filename in ("train.py", "prepare.py"):
+            src = repo_dir() / filename
+            dst = rt_dir / filename
+            if not dst.exists() and src.exists():
+                shutil.copy2(src, dst)
 
     generate_runtime_claude_md(rt_dir)
     return rt_dir

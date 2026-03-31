@@ -11,7 +11,7 @@ def repo_dir() -> Path:
 
 
 def data_dir() -> Path:
-    default = str(repo_dir() / "data")
+    default = str(Path.home() / "multi-layer-autoresearch-data")
     return Path(os.environ.get("DATA_DIR", default)).expanduser()
 
 
