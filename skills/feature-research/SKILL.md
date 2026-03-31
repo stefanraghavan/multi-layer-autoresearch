@@ -19,6 +19,8 @@ The `compute_all_features()` function in `prepare.py` (marked `LAYER 1 MODIFIES 
 
 You can also add entirely new feature computation functions to `prepare.py` — for example, computing RSI, MACD, Bollinger Band features, day-of-week encoding, month encoding, cross-asset features if multiple tickers are available, etc.
 
+You also have access to **external data sources** via FactSet APIs. You can fetch fundamental data, earnings transcripts, consensus estimates, valuation metrics, and prices beyond what yfinance provides. See the **Data Sources** section below.
+
 ## What You Do NOT Control
 
 - Model architecture (Layer 2's job)
@@ -68,10 +70,46 @@ After every 5 feature experiments:
 5. `git commit -m "feature post-mortem after N experiments"`
 6. Resume.
 
+## Data Sources
+
+### 1. Price Data (yfinance — default)
+Daily OHLCV data downloaded in `prepare.py`. Already integrated.
+
+### 2. FactSet APIs (available via bundled scripts)
+
+You have access to FactSet data via Python SDK scripts in `.claude/skills/feature-research/scripts/`. These require `FACTSET_USER_ID` and `FACTSET_API_KEY` environment variables to be set.
+
+**Available scripts:**
+
+| Script | What it fetches | Feature ideas |
+|--------|----------------|---------------|
+| `fetch_factset_estimates.py` | Consensus revenue estimates, segment estimates | Estimate revision momentum, consensus dispersion, beat/miss history |
+| `fetch_factset_transcripts.py` | Earnings call transcripts (speaker-segmented) | Sentiment features, management tone, Q&A intensity, guidance language |
+| `fetch_factset_prices.py` | Prices, market cap, shares outstanding, YTD returns | More granular price data, market cap features |
+| `fetch_factset_valuation.py` | Debt, cash, EV/Revenue multiples, short interest | Valuation features, leverage ratios, short interest as contrarian signal |
+| `fetch_factset_periods.py` | Historical quarterly revenue with report dates | Earnings surprise history, seasonal revenue patterns |
+
+**Reference docs:**
+- `references/factset-reference.md` — Full API reference with authentication, endpoints, response formats
+- `references/retrieval-playbook.md` — Source hierarchy and caching patterns
+
+**How to use:** You can call these scripts from `prepare.py` or write new fetch functions using the FactSet SDK directly. Cache fetched data locally to avoid redundant API calls. All FactSet data must respect point-in-time constraints (only use data published before the prediction date).
+
+**Example feature hypotheses using FactSet data:**
+- "Analyst estimate revision momentum (are estimates being revised up or down?) should predict direction because revisions lead earnings surprises"
+- "Short interest above 10% creates squeeze potential — positive surprises trigger outsized moves"
+- "Companies with high consensus dispersion (analysts disagree) have more volatile post-earnings reactions"
+- "Revenue acceleration (QoQ growth increasing) predicts continued upward momentum"
+- "Earnings call transcript sentiment (ratio of positive to negative language) correlates with next-day direction"
+
+### 3. SEC EDGAR (available via fetch scripts)
+SEC filings can be fetched via the EDGAR API (no authentication required). Useful for extracting financial statement data, segment breakdowns, and management discussion.
+
 ## Feature Ideas to Explore
 
 Starting directions (not exhaustive — use economic reasoning):
 
+**From price/volume data (yfinance):**
 - **Technical indicators**: RSI, MACD, Bollinger Bands, ATR, OBV
 - **Calendar effects**: Day-of-week, month-of-year, options expiry proximity
 - **Cross-timeframe**: Short-term momentum vs long-term trend alignment
@@ -81,12 +119,21 @@ Starting directions (not exhaustive — use economic reasoning):
 - **Lagged features**: Yesterday's features as additional inputs
 - **Regime indicators**: Rolling Sharpe, drawdown depth, volatility regime
 
+**From FactSet data (requires API credentials):**
+- **Estimate revisions**: Direction and magnitude of recent consensus changes
+- **Earnings surprise history**: Pattern of beats/misses, surprise magnitude trend
+- **Valuation context**: EV/Revenue percentile, price-to-sales relative to sector
+- **Short interest**: Level and changes in short interest as contrarian signal
+- **Fundamental momentum**: Revenue growth acceleration, margin expansion/contraction
+- **Transcript features**: Sentiment scores, management confidence indicators
+
 ## Constraints
 
 - Only modify prepare.py (feature computation)
 - All features must be point-in-time (no future leakage)
-- Do not install new packages (use pandas, numpy only)
+- You may use FactSet SDK packages (already in dependencies) and the bundled fetch scripts
 - After modifying prepare.py, you must re-run `python prepare.py` before training
+- Cache all fetched external data locally to avoid redundant API calls
 - Keep total feature count reasonable (avoid curse of dimensionality — start small, add incrementally)
 
 ## Research Notes
