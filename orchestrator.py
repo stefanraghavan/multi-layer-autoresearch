@@ -86,13 +86,14 @@ def _extract_accuracy_from_result(result_text: str) -> float | None:
 # ---------------------------------------------------------------------------
 
 
-async def run_layer3_loop(runtime_dir: Path, n_experiments: int) -> float:
+async def run_layer3_loop(runtime_dir: Path, n_experiments: int, baseline_accuracy: float = 0.0) -> float:
     """Run Layer 3 (hyperparameter tuning) for N experiments. Returns best val_accuracy."""
     _log(f"\n{'='*60}")
     _log(f"LAYER 3: Running {n_experiments} hyperparameter experiments")
+    _log(f"  Baseline to beat: {baseline_accuracy:.4f}")
     _log(f"{'='*60}")
 
-    best_accuracy = 0.0
+    best_accuracy = baseline_accuracy
 
     for i in range(n_experiments):
         run = _run_id("L3", i)
@@ -140,7 +141,7 @@ async def run_layer3_loop(runtime_dir: Path, n_experiments: int) -> float:
     return best_accuracy
 
 
-async def run_layer2_loop(runtime_dir: Path, n_experiments: int) -> float:
+async def run_layer2_loop(runtime_dir: Path, n_experiments: int, baseline_accuracy: float = 0.0) -> float:
     """Run Layer 2 (architecture search) for N experiments.
     Each experiment includes a full Layer 3 tuning cycle.
     Returns best val_accuracy.
@@ -148,9 +149,10 @@ async def run_layer2_loop(runtime_dir: Path, n_experiments: int) -> float:
     _log(f"\n{'='*60}")
     _log(f"LAYER 2: Running {n_experiments} architecture experiments")
     _log(f"  (each with {LAYER3_EXPERIMENTS_PER_EVAL} Layer 3 runs)")
+    _log(f"  Baseline to beat: {baseline_accuracy:.4f}")
     _log(f"{'='*60}")
 
-    best_accuracy = 0.0
+    best_accuracy = baseline_accuracy
 
     for i in range(n_experiments):
         run = _run_id("L2", i)
@@ -206,7 +208,7 @@ async def run_layer2_loop(runtime_dir: Path, n_experiments: int) -> float:
     return best_accuracy
 
 
-async def run_layer1_loop(runtime_dir: Path, n_experiments: int) -> float:
+async def run_layer1_loop(runtime_dir: Path, n_experiments: int, baseline_accuracy: float = 0.0) -> float:
     """Run Layer 1 (feature research) for N experiments.
     Each experiment includes a full Layer 2 + Layer 3 cycle.
     Returns best val_accuracy.
@@ -214,9 +216,10 @@ async def run_layer1_loop(runtime_dir: Path, n_experiments: int) -> float:
     _log(f"\n{'='*60}")
     _log(f"LAYER 1: Running {n_experiments} feature experiments")
     _log(f"  (each with {LAYER2_EXPERIMENTS_PER_EVAL} Layer 2 + {LAYER3_EXPERIMENTS_PER_EVAL} Layer 3 runs)")
+    _log(f"  Baseline to beat: {baseline_accuracy:.4f}")
     _log(f"{'='*60}")
 
-    best_accuracy = 0.0
+    best_accuracy = baseline_accuracy
 
     for i in range(n_experiments):
         run = _run_id("L1", i)
@@ -318,15 +321,15 @@ async def main() -> None:
                 break
     _log(f"Baseline val_accuracy: {baseline_accuracy:.4f}")
 
-    # Run the appropriate layer loop
+    # Run the appropriate layer loop, seeded with baseline accuracy
     started = perf_counter()
 
     if start_layer == 3:
-        best = await run_layer3_loop(rt_dir, LAYER3_EXPERIMENTS_PER_EVAL)
+        best = await run_layer3_loop(rt_dir, LAYER3_EXPERIMENTS_PER_EVAL, baseline_accuracy)
     elif start_layer == 2:
-        best = await run_layer2_loop(rt_dir, LAYER2_EXPERIMENTS_PER_EVAL)
+        best = await run_layer2_loop(rt_dir, LAYER2_EXPERIMENTS_PER_EVAL, baseline_accuracy)
     else:
-        best = await run_layer1_loop(rt_dir, LAYER1_EXPERIMENTS_PER_CYCLE)
+        best = await run_layer1_loop(rt_dir, LAYER1_EXPERIMENTS_PER_CYCLE, baseline_accuracy)
 
     elapsed = perf_counter() - started
 
