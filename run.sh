@@ -1,0 +1,48 @@
+#!/bin/bash
+# Run the multi-layer autoresearch system.
+#
+# Usage:
+#   ./run.sh              # Full three-layer loop (Layer 1 -> 2 -> 3)
+#   ./run.sh 3            # Layer 3 only (hyperparameter tuning)
+#   ./run.sh 2            # Layer 2 + 3 (architecture + hyperparameters)
+#   ./run.sh 1            # Full stack (same as no argument)
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
+LAYER="${1:-1}"
+
+# Create venv if it doesn't exist
+if [ ! -d ".venv" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv .venv
+fi
+
+# Activate venv
+source .venv/bin/activate
+
+# Install dependencies if needed
+if [ ! -f ".venv/.installed" ]; then
+    echo "Installing dependencies..."
+    pip install --upgrade pip
+    pip install -e .
+    touch .venv/.installed
+fi
+
+# Load .env
+if [ -f .env ]; then
+    set -a
+    source .env
+    set +a
+fi
+
+echo "============================================================"
+echo "Multi-Layer Autoresearch"
+echo "  Layer:   $LAYER"
+echo "  Tickers: ${TICKERS:-SPY}"
+echo "  Model:   ${MODEL_ID:-gpt-5.4}"
+echo "============================================================"
+
+LAYER="$LAYER" python orchestrator.py

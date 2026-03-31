@@ -18,3 +18,6 @@ dependencies = [
     "fds.sdk.FactSetEstimates==3.1.0",
     "fds.sdk.FactSetGlobalPrices>=1.0.0",
 ]
+
+[tool.setuptools]
+packages = ["lib"]
