@@ -64,6 +64,12 @@ def initialize_runtime(reset: bool = False) -> Path:
 
     rt_dir = runtime_dir()
     is_fresh = not rt_dir.exists()
+
+    if reset and rt_dir.exists():
+        # Full wipe: remove everything and start clean
+        shutil.rmtree(rt_dir)
+        is_fresh = True
+
     rt_dir.mkdir(parents=True, exist_ok=True)
 
     for subdir in ("workspace", "traces", "data"):
