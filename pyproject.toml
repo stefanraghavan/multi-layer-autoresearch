@@ -1,0 +1,15 @@
+[project]
+name = "multi-layer-autoresearch"
+version = "0.1.0"
+description = "Three-layer autonomous research system for daily stock direction prediction"
+requires-python = ">=3.11"
+
+dependencies = [
+    "openai>=1.82.0",
+    "torch>=2.0.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "yfinance>=0.2.30",
+    "PyYAML>=6.0.1",
+    "scikit-learn>=1.3.0",
+]
