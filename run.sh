@@ -40,7 +40,7 @@ fi
 echo "============================================================"
 echo "Multi-Layer Autoresearch"
 echo "  Layer:   $LAYER"
-echo "  Tickers: ${TICKERS:-default universe (24 tickers)}"
+echo "  Tickers: ${TICKERS:-default universe (10 stocks)}"
 echo "  Model:   ${MODEL_ID:-gpt-5.4}"
 echo "============================================================"
 
