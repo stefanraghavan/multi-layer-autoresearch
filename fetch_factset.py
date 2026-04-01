@@ -264,11 +264,6 @@ def main() -> None:
         actuals = _fetch_actuals(ticker, start_date, end_date)
         print(f"  Got {len(actuals)} actuals records", flush=True)
 
-        # Short interest
-        print(f"  Fetching short interest...", flush=True)
-        short_interest = _fetch_short_interest(ticker, end_date)
-        print(f"  Short interest: {short_interest}", flush=True)
-
         # Save cache
         cache_data = {
             "ticker": ticker,
@@ -276,7 +271,6 @@ def main() -> None:
             "fetched_at": datetime.now().isoformat(),
             "consensus_time_series": consensus,
             "actuals": actuals,
-            "short_interest": short_interest,
         }
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps(cache_data, indent=2) + "\n")

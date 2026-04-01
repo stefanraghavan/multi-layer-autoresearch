@@ -200,16 +200,14 @@ def compute_factset_features(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
     - analyst_count: number of analysts covering
     - last_surprise_pct: most recent earnings surprise (actual vs estimate)
     - avg_surprise_pct: average surprise over last 4 quarters
-    - short_interest_ratio: days to cover
 
     All values are forward-filled to daily and shifted by 1 day for point-in-time.
-    ETFs and tickers without cached data get all zeros (neutral).
+    Tickers without cached data get all zeros (neutral).
     """
     features = pd.DataFrame(index=df.index)
     factset_cols = [
         "estimate_revision_30d", "estimate_revision_90d",
         "analyst_count", "last_surprise_pct", "avg_surprise_pct",
-        "short_interest_ratio",
     ]
 
     # Try to load cached FactSet data
@@ -297,13 +295,6 @@ def compute_factset_features(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
     else:
         features["last_surprise_pct"] = 0.0
         features["avg_surprise_pct"] = 0.0
-
-    # Short interest
-    si = cache.get("short_interest")
-    if si and si.get("short_interest_ratio") is not None:
-        features["short_interest_ratio"] = float(si["short_interest_ratio"]) / 10.0  # normalize
-    else:
-        features["short_interest_ratio"] = 0.0
 
     return features
 

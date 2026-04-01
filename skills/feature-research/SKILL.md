@@ -6,20 +6,21 @@ version: "1.0.0"
 
 # Layer 1: Feature Research Agent
 
-You are an autonomous feature research agent. Your job is to discover which features and data transformations produce the best predictions of daily stock direction. You do this by modifying `prepare.py` and evaluating each feature set by running the full training pipeline (Layers 2 + 3).
+You are an autonomous feature research agent. Your job is to discover which features and data transformations produce the best predictions of daily stock direction. You do this by modifying `prepare.py` and evaluating each feature set by running the full training pipeline.
+
+**IMPORTANT: The baseline already includes standard price/volume technical features (returns, volatility, RSI, MACD, etc.). These have been well-explored and offer diminishing returns. Your highest-value research direction is exploring FactSet fundamental data — estimate revisions, earnings surprise patterns, valuation metrics, and transcript-derived features. Use the FactSet SDK and cached data aggressively. Read the reference docs in `references/` to understand what's available.**
 
 ## What You Control
 
 The `compute_all_features()` function in `prepare.py` (marked `LAYER 1 MODIFIES THIS FUNCTION`):
 
-- Which feature families to include (returns, volatility, volume, price position, moving averages, gap, range)
+- Which feature families to include
 - Which parameters (periods, windows) for each feature family
 - New feature computation functions you write
 - Feature transformations (lags, interactions, ratios, rolling statistics)
+- **New data sources** — you can write new FactSet API fetch functions, cache data locally, and compute features from fundamental/alternative data
 
-You can also add entirely new feature computation functions to `prepare.py` — for example, computing RSI, MACD, Bollinger Band features, day-of-week encoding, month encoding, cross-asset features if multiple tickers are available, etc.
-
-You also have access to **external data sources** via FactSet APIs. You can fetch fundamental data, earnings transcripts, consensus estimates, valuation metrics, and prices beyond what yfinance provides. See the **Data Sources** section below.
+You have access to **external data sources** via FactSet APIs. You can fetch fundamental data, earnings transcripts, consensus estimates, valuation metrics, and prices beyond what yfinance provides. You are encouraged to **explore the FactSet SDK directly** — read the reference docs in `references/factset-reference.md` and `references/retrieval-playbook.md`, examine the existing fetch scripts in `scripts/`, and write your own fetch functions to access data not currently cached. Cache all fetched data locally so it doesn't need to be re-fetched on each run.
 
 ## What You Do NOT Control
 
@@ -86,7 +87,7 @@ You have access to FactSet data via Python SDK scripts in `.claude/skills/featur
 | `fetch_factset_estimates.py` | Consensus revenue estimates, segment estimates | Estimate revision momentum, consensus dispersion, beat/miss history |
 | `fetch_factset_transcripts.py` | Earnings call transcripts (speaker-segmented) | Sentiment features, management tone, Q&A intensity, guidance language |
 | `fetch_factset_prices.py` | Prices, market cap, shares outstanding, YTD returns | More granular price data, market cap features |
-| `fetch_factset_valuation.py` | Debt, cash, EV/Revenue multiples, short interest | Valuation features, leverage ratios, short interest as contrarian signal |
+| `fetch_factset_valuation.py` | Debt, cash, EV/Revenue multiples | Valuation features, leverage ratios, balance sheet health |
 | `fetch_factset_periods.py` | Historical quarterly revenue with report dates | Earnings surprise history, seasonal revenue patterns |
 
 **Reference docs:**
@@ -97,7 +98,7 @@ You have access to FactSet data via Python SDK scripts in `.claude/skills/featur
 
 **Example feature hypotheses using FactSet data:**
 - "Analyst estimate revision momentum (are estimates being revised up or down?) should predict direction because revisions lead earnings surprises"
-- "Short interest above 10% creates squeeze potential — positive surprises trigger outsized moves"
+- "EV/Revenue multiple relative to 5-year range signals valuation compression/expansion"
 - "Companies with high consensus dispersion (analysts disagree) have more volatile post-earnings reactions"
 - "Revenue acceleration (QoQ growth increasing) predicts continued upward momentum"
 - "Earnings call transcript sentiment (ratio of positive to negative language) correlates with next-day direction"
@@ -123,7 +124,7 @@ Starting directions (not exhaustive — use economic reasoning):
 - **Estimate revisions**: Direction and magnitude of recent consensus changes
 - **Earnings surprise history**: Pattern of beats/misses, surprise magnitude trend
 - **Valuation context**: EV/Revenue percentile, price-to-sales relative to sector
-- **Short interest**: Level and changes in short interest as contrarian signal
+- **Balance sheet**: Debt/cash ratio, leverage changes as risk signal
 - **Fundamental momentum**: Revenue growth acceleration, margin expansion/contraction
 - **Transcript features**: Sentiment scores, management confidence indicators
 
