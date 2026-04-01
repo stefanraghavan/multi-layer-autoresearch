@@ -3,6 +3,9 @@
 Downloads daily OHLCV data, computes baseline features, creates walk-forward
 train/validation splits, and saves as numpy arrays.
 
+Multi-ticker: each ticker is processed independently and saved to its own
+directory. train.py can load one or combine multiple.
+
 This script is modified by the Layer 1 (Feature Research) agent to add/remove
 features. The feature configuration is stored in features.json.
 """
@@ -23,7 +26,7 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 # Walk-forward validation: train on TRAIN_YEARS, validate on VAL_YEARS
-TRAIN_YEARS = int(os.environ.get("TRAIN_YEARS", "3"))
+TRAIN_YEARS = int(os.environ.get("TRAIN_YEARS", "7"))
 VAL_YEARS = int(os.environ.get("VALIDATION_YEARS", "1"))
 
 # Minimum number of trading days required
@@ -32,33 +35,35 @@ MIN_TRADING_DAYS = 252 * (TRAIN_YEARS + VAL_YEARS)
 # Output directory (relative to script location or DATA_DIR)
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
 
+# Default ticker universe: broad market ETFs + sector ETFs + liquid large-caps
+DEFAULT_TICKERS = (
+    # Broad market
+    "SPY,QQQ,IWM,DIA,"
+    # Sector ETFs
+    "XLF,XLE,XLK,XLV,XLI,XLP,XLU,XLB,XLC,XLRE,"
+    # Liquid large-caps
+    "AAPL,MSFT,AMZN,GOOGL,META,NVDA,TSLA,JPM,JNJ,V"
+)
+
 
 # ---------------------------------------------------------------------------
 # Feature computation
 # ---------------------------------------------------------------------------
 
-# FEATURES_CONFIG: This section defines which features to compute.
-# The Layer 1 (Feature Research) agent modifies this section.
-# Each feature is a dict with 'name', 'compute' function reference, and 'params'.
+# All features use data from day T-1 and earlier to predict day T's direction.
+# This is the point-in-time rule: no same-day data leakage.
 
 def compute_returns(df: pd.DataFrame, periods: list[int]) -> pd.DataFrame:
-    """Compute log returns over multiple periods using PREVIOUS day's close.
-
-    All features are shifted by 1 day: we use Close_{T-1} as the most recent
-    price available when predicting day T's direction.
-    """
+    """Compute log returns over multiple periods using PREVIOUS day's close."""
     features = pd.DataFrame(index=df.index)
-    prev_close = df["Close"].shift(1)  # yesterday's close
+    prev_close = df["Close"].shift(1)
     for p in periods:
         features[f"return_{p}d"] = np.log(prev_close / df["Close"].shift(p))
     return features
 
 
 def compute_volatility(df: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
-    """Compute rolling volatility using PREVIOUS day's returns.
-
-    Uses returns ending at T-1 (not including today's return).
-    """
+    """Compute rolling volatility using PREVIOUS day's returns."""
     daily_ret = np.log(df["Close"].shift(1) / df["Close"].shift(2))
     features = pd.DataFrame(index=df.index)
     for w in windows:
@@ -67,10 +72,7 @@ def compute_volatility(df: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
 
 
 def compute_volume_features(df: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
-    """Compute volume-based features using PREVIOUS day's volume.
-
-    Today's volume isn't known until market close (same time as target).
-    """
+    """Compute volume-based features using PREVIOUS day's volume."""
     features = pd.DataFrame(index=df.index)
     prev_volume = df["Volume"].shift(1)
     for w in windows:
@@ -79,10 +81,7 @@ def compute_volume_features(df: pd.DataFrame, windows: list[int]) -> pd.DataFram
 
 
 def compute_price_position(df: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
-    """Compute price position within rolling high-low range using PREVIOUS day.
-
-    Uses Close_{T-1} relative to High/Low range ending at T-1.
-    """
+    """Compute price position within rolling high-low range using PREVIOUS day."""
     features = pd.DataFrame(index=df.index)
     prev_close = df["Close"].shift(1)
     for w in windows:
@@ -98,10 +97,7 @@ def compute_price_position(df: pd.DataFrame, windows: list[int]) -> pd.DataFrame
 
 
 def compute_moving_average_features(df: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
-    """Compute price relative to moving averages using PREVIOUS day's close.
-
-    Uses Close_{T-1} vs MA of closes ending at T-1.
-    """
+    """Compute price relative to moving averages using PREVIOUS day's close."""
     features = pd.DataFrame(index=df.index)
     prev_close = df["Close"].shift(1)
     for w in windows:
@@ -111,22 +107,70 @@ def compute_moving_average_features(df: pd.DataFrame, windows: list[int]) -> pd.
 
 
 def compute_gap(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute overnight gap (previous day's open vs day-before close).
-
-    Shifted by 1 day to avoid using same-day data as the target.
-    """
+    """Compute overnight gap (previous day's open vs day-before close)."""
     features = pd.DataFrame(index=df.index)
     features["overnight_gap"] = np.log(df["Open"].shift(1) / df["Close"].shift(2))
     return features
 
 
 def compute_intraday_range(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute intraday range as fraction of close (previous day).
-
-    Shifted by 1 day to avoid using same-day data as the target.
-    """
+    """Compute intraday range as fraction of close (previous day)."""
     features = pd.DataFrame(index=df.index)
     features["intraday_range"] = (df["High"].shift(1) - df["Low"].shift(1)) / df["Close"].shift(1)
+    return features
+
+
+def compute_rsi(df: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
+    """Compute Relative Strength Index using PREVIOUS day's data."""
+    daily_ret = df["Close"].shift(1) - df["Close"].shift(2)
+    features = pd.DataFrame(index=df.index)
+    for w in windows:
+        gain = daily_ret.clip(lower=0).rolling(w).mean()
+        loss = (-daily_ret.clip(upper=0)).rolling(w).mean()
+        rs = gain / (loss + 1e-10)
+        features[f"rsi_{w}d"] = 100 - (100 / (1 + rs))
+    return features
+
+
+def compute_macd(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute MACD and signal line using PREVIOUS day's close."""
+    prev_close = df["Close"].shift(1)
+    ema12 = prev_close.ewm(span=12, adjust=False).mean()
+    ema26 = prev_close.ewm(span=26, adjust=False).mean()
+    macd_line = ema12 - ema26
+    signal_line = macd_line.ewm(span=9, adjust=False).mean()
+    features = pd.DataFrame(index=df.index)
+    features["macd"] = macd_line / prev_close  # normalize by price
+    features["macd_signal"] = signal_line / prev_close
+    features["macd_histogram"] = (macd_line - signal_line) / prev_close
+    return features
+
+
+def compute_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute calendar-based features (day of week, month)."""
+    features = pd.DataFrame(index=df.index)
+    dates = pd.DatetimeIndex(df.index)
+    # Encode as sin/cos to capture cyclical nature
+    features["dow_sin"] = np.sin(2 * np.pi * dates.dayofweek / 5)
+    features["dow_cos"] = np.cos(2 * np.pi * dates.dayofweek / 5)
+    features["month_sin"] = np.sin(2 * np.pi * dates.month / 12)
+    features["month_cos"] = np.cos(2 * np.pi * dates.month / 12)
+    return features
+
+
+def compute_streak_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute consecutive up/down day streaks using PREVIOUS days."""
+    daily_up = (df["Close"].shift(1) > df["Close"].shift(2)).astype(float)
+    features = pd.DataFrame(index=df.index)
+
+    # Count consecutive up/down days (capped at 10)
+    streak = pd.Series(0.0, index=df.index)
+    for i in range(1, len(df)):
+        if daily_up.iloc[i] == 1:
+            streak.iloc[i] = max(streak.iloc[i-1], 0) + 1
+        else:
+            streak.iloc[i] = min(streak.iloc[i-1], 0) - 1
+    features["streak"] = streak.clip(-10, 10) / 10  # normalize to [-1, 1]
     return features
 
 
@@ -138,7 +182,7 @@ def compute_all_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     parts = []
 
-    # Returns at multiple horizons (exclude 1d — it IS the target)
+    # Returns at multiple horizons
     parts.append(compute_returns(df, periods=[2, 3, 5, 10, 20]))
 
     # Volatility at multiple windows
@@ -151,11 +195,23 @@ def compute_all_features(df: pd.DataFrame) -> pd.DataFrame:
     parts.append(compute_price_position(df, windows=[5, 10, 20, 60]))
 
     # Price vs moving averages
-    parts.append(compute_moving_average_features(df, windows=[5, 10, 20, 50, 200]))
+    parts.append(compute_moving_average_features(df, windows=[10, 20, 50, 200]))
 
     # Gap and range
     parts.append(compute_gap(df))
     parts.append(compute_intraday_range(df))
+
+    # RSI
+    parts.append(compute_rsi(df, windows=[7, 14]))
+
+    # MACD
+    parts.append(compute_macd(df))
+
+    # Calendar features
+    parts.append(compute_calendar_features(df))
+
+    # Streak features
+    parts.append(compute_streak_features(df))
 
     features = pd.concat(parts, axis=1)
     return features
@@ -231,10 +287,7 @@ def create_walk_forward_split(
 # ---------------------------------------------------------------------------
 
 def evaluate_predictions(y_true: np.ndarray, y_pred_proba: np.ndarray) -> dict:
-    """Compute evaluation metrics for binary classification.
-
-    Returns dict with accuracy, log_loss, brier_score, profit_weighted_accuracy.
-    """
+    """Compute evaluation metrics for binary classification."""
     from sklearn.metrics import accuracy_score, log_loss, brier_score_loss
 
     y_pred = (y_pred_proba >= 0.5).astype(np.float32)
@@ -247,7 +300,7 @@ def evaluate_predictions(y_true: np.ndarray, y_pred_proba: np.ndarray) -> dict:
         "log_loss": float(ll),
         "brier_score": float(brier),
         "n_samples": int(len(y_true)),
-        "baseline_accuracy": float(y_true.mean()),  # fraction of up days
+        "baseline_accuracy": float(y_true.mean()),
     }
 
 
@@ -256,14 +309,14 @@ def evaluate_predictions(y_true: np.ndarray, y_pred_proba: np.ndarray) -> dict:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    tickers_str = os.environ.get("TICKERS", "SPY")
+    tickers_str = os.environ.get("TICKERS", DEFAULT_TICKERS)
     tickers = [t.strip().upper() for t in tickers_str.split(",") if t.strip()]
 
     total_years = TRAIN_YEARS + VAL_YEARS + 1  # extra year for feature warmup
     end_date = datetime.now().strftime("%Y-%m-%d")
     start_date = (datetime.now() - timedelta(days=365 * total_years)).strftime("%Y-%m-%d")
 
-    print(f"Preparing data for: {tickers}", flush=True)
+    print(f"Preparing data for {len(tickers)} tickers: {tickers}", flush=True)
     print(f"Date range: {start_date} to {end_date}", flush=True)
     print(f"Train: {TRAIN_YEARS} years, Validation: {VAL_YEARS} year(s)", flush=True)
 
@@ -274,6 +327,11 @@ def main() -> None:
         sys.exit(1)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Process each ticker and also build a combined dataset
+    all_X_train, all_y_train = [], []
+    all_X_val, all_y_val = [], []
+    combined_feature_names = None
 
     for ticker, df in raw_data.items():
         print(f"\nProcessing {ticker}...", flush=True)
@@ -290,6 +348,10 @@ def main() -> None:
         y = combined["target"].values.astype(np.float32)
         dates = combined.index.values
 
+        if len(X) < 252 * 2:
+            print(f"  WARNING: Only {len(X)} samples for {ticker}, skipping (need at least {252*2})", flush=True)
+            continue
+
         print(f"  Features: {len(feature_names)}", flush=True)
         print(f"  Samples: {len(X)}", flush=True)
         print(f"  Up-day fraction: {y.mean():.3f}", flush=True)
@@ -300,7 +362,7 @@ def main() -> None:
         print(f"  Train: {len(split['X_train'])} days", flush=True)
         print(f"  Val: {len(split['X_val'])} days", flush=True)
 
-        # Save
+        # Save per-ticker
         ticker_dir = DATA_DIR / ticker.lower()
         ticker_dir.mkdir(parents=True, exist_ok=True)
 
@@ -309,7 +371,6 @@ def main() -> None:
         np.save(ticker_dir / "X_val.npy", split["X_val"])
         np.save(ticker_dir / "y_val.npy", split["y_val"])
 
-        # Save metadata
         metadata = {
             "ticker": ticker,
             "feature_names": feature_names,
@@ -322,7 +383,43 @@ def main() -> None:
             "up_day_fraction_val": float(split["y_val"].mean()),
         }
         (ticker_dir / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
-        print(f"  Saved to {ticker_dir}/", flush=True)
+
+        # Accumulate for combined dataset
+        all_X_train.append(split["X_train"])
+        all_y_train.append(split["y_train"])
+        all_X_val.append(split["X_val"])
+        all_y_val.append(split["y_val"])
+        combined_feature_names = feature_names
+
+    # Save combined dataset (all tickers stacked)
+    if all_X_train:
+        combined_dir = DATA_DIR / "_combined"
+        combined_dir.mkdir(parents=True, exist_ok=True)
+
+        X_train_all = np.concatenate(all_X_train, axis=0)
+        y_train_all = np.concatenate(all_y_train, axis=0)
+        X_val_all = np.concatenate(all_X_val, axis=0)
+        y_val_all = np.concatenate(all_y_val, axis=0)
+
+        np.save(combined_dir / "X_train.npy", X_train_all)
+        np.save(combined_dir / "y_train.npy", y_train_all)
+        np.save(combined_dir / "X_val.npy", X_val_all)
+        np.save(combined_dir / "y_val.npy", y_val_all)
+
+        metadata = {
+            "ticker": "_combined",
+            "tickers_included": [t for t in raw_data.keys()],
+            "n_tickers": len(all_X_train),
+            "feature_names": combined_feature_names,
+            "n_features": len(combined_feature_names),
+            "n_train": int(len(X_train_all)),
+            "n_val": int(len(X_val_all)),
+            "up_day_fraction_train": float(y_train_all.mean()),
+            "up_day_fraction_val": float(y_val_all.mean()),
+        }
+        (combined_dir / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+
+        print(f"\nCombined dataset: {len(X_train_all)} train, {len(X_val_all)} val samples across {len(all_X_train)} tickers", flush=True)
 
     print("\nData preparation complete.", flush=True)
 

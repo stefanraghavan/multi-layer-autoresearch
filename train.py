@@ -32,7 +32,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 TIME_BUDGET = int(os.environ.get("TIME_BUDGET", "60"))  # seconds
 EARLY_STOP_PATIENCE = int(os.environ.get("EARLY_STOP_PATIENCE", "200"))  # epochs without val_loss improvement
-TICKER = os.environ.get("TICKER", "spy").lower()
+TICKER = os.environ.get("TICKER", "_combined").lower()
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
 
 # ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
 
 LEARNING_RATE = 3e-4
 WEIGHT_DECAY = 1e-4
-BATCH_SIZE = 64
+BATCH_SIZE = 256
 DROPOUT = 0.3
 OPTIMIZER = "adam"  # adam, sgd, adamw
 LR_SCHEDULE = "cosine"  # cosine, constant, step
@@ -52,7 +52,7 @@ LABEL_SMOOTHING = 0.05
 # Model Architecture — LAYER 2 MODIFIES THIS SECTION
 # ---------------------------------------------------------------------------
 
-HIDDEN_DIMS = [128, 64, 32]  # MLP hidden layer dimensions
+HIDDEN_DIMS = [32, 16]  # MLP hidden layer dimensions — right-sized for ~30 features
 ACTIVATION = "relu"  # relu, gelu, silu, tanh
 USE_BATCH_NORM = True
 USE_RESIDUAL = False  # residual connections (requires matching dims)

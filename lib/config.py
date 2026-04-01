@@ -51,14 +51,16 @@ VERBOSE = os.environ.get("VERBOSE", "true").strip().lower() not in {
 # ---------------------------------------------------------------------------
 
 # Comma-separated list of tickers to include in the dataset.
+# Default: broad market + sector ETFs + liquid large-caps (24 tickers)
+DEFAULT_TICKERS = "SPY,QQQ,IWM,DIA,XLF,XLE,XLK,XLV,XLI,XLP,XLU,XLB,XLC,XLRE,AAPL,MSFT,AMZN,GOOGL,META,NVDA,TSLA,JPM,JNJ,V"
 TICKERS = [
     t.strip().upper()
-    for t in os.environ.get("TICKERS", "SPY").split(",")
+    for t in os.environ.get("TICKERS", DEFAULT_TICKERS).split(",")
     if t.strip()
 ]
 
 # Walk-forward settings
-TRAIN_YEARS = int(os.environ.get("TRAIN_YEARS", "3"))
+TRAIN_YEARS = int(os.environ.get("TRAIN_YEARS", "7"))
 VALIDATION_YEARS = int(os.environ.get("VALIDATION_YEARS", "1"))
 
 # ---------------------------------------------------------------------------
