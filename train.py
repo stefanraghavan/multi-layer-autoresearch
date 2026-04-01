@@ -30,7 +30,8 @@ from torch.utils.data import DataLoader, TensorDataset
 # Constants (fixed evaluation protocol — do not modify)
 # ---------------------------------------------------------------------------
 
-TIME_BUDGET = int(os.environ.get("TIME_BUDGET", "300"))  # seconds
+TIME_BUDGET = int(os.environ.get("TIME_BUDGET", "60"))  # seconds
+EARLY_STOP_PATIENCE = int(os.environ.get("EARLY_STOP_PATIENCE", "200"))  # epochs without val_loss improvement
 TICKER = os.environ.get("TICKER", "spy").lower()
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
 
@@ -174,10 +175,16 @@ def train() -> dict:
     best_state = None
     step = 0
     epoch = 0
+    epochs_without_improvement = 0
 
     while True:
         elapsed = time.time() - start_time
         if elapsed >= TIME_BUDGET:
+            print(f"  Time budget reached ({TIME_BUDGET}s).", flush=True)
+            break
+
+        if epochs_without_improvement >= EARLY_STOP_PATIENCE:
+            print(f"  Early stopping: no val_loss improvement for {EARLY_STOP_PATIENCE} epochs.", flush=True)
             break
 
         model.train()
@@ -226,13 +233,16 @@ def train() -> dict:
             val_preds = (val_probs >= 0.5).float()
             val_acc = (val_preds == y_val_t).float().mean().item()
 
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
+        if val_loss < best_val_loss:
             best_val_loss = val_loss
+            best_val_acc = val_acc
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
 
-        if epoch % 10 == 0:
-            print(f"  epoch {epoch:4d} | step {step:6d} | val_acc {val_acc:.4f} | val_loss {val_loss:.4f} | lr {lr:.2e}", flush=True)
+        if epoch % 50 == 0:
+            print(f"  epoch {epoch:4d} | step {step:6d} | val_acc {val_acc:.4f} | val_loss {val_loss:.4f} | best_loss {best_val_loss:.4f} | patience {epochs_without_improvement}/{EARLY_STOP_PATIENCE} | lr {lr:.2e}", flush=True)
 
     training_time = time.time() - start_time
 
