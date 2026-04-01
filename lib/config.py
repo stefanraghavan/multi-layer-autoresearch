@@ -60,8 +60,8 @@ TICKERS = [
 ]
 
 # Walk-forward settings
-TRAIN_YEARS = int(os.environ.get("TRAIN_YEARS", "7"))
-VALIDATION_YEARS = int(os.environ.get("VALIDATION_YEARS", "1"))
+TRAIN_YEARS = int(os.environ.get("TRAIN_YEARS", "8"))
+VALIDATION_YEARS = int(os.environ.get("VALIDATION_YEARS", "2"))
 
 # ---------------------------------------------------------------------------
 # Layer-specific experiment budgets

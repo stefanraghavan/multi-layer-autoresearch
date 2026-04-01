@@ -26,8 +26,8 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 # Walk-forward validation: train on TRAIN_YEARS, validate on VAL_YEARS
-TRAIN_YEARS = int(os.environ.get("TRAIN_YEARS", "7"))
-VAL_YEARS = int(os.environ.get("VALIDATION_YEARS", "1"))
+TRAIN_YEARS = int(os.environ.get("TRAIN_YEARS", "8"))
+VAL_YEARS = int(os.environ.get("VALIDATION_YEARS", "2"))
 
 # Minimum number of trading days required
 MIN_TRADING_DAYS = 252 * (TRAIN_YEARS + VAL_YEARS)
