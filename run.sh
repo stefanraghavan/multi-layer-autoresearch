@@ -41,8 +41,14 @@ fi
 echo "============================================================"
 echo "Multi-Layer Autoresearch"
 echo "  Layer:   $LAYER"
-echo "  Tickers: ${TICKERS:-SPY}"
+echo "  Tickers: ${TICKERS:-default universe (24 tickers)}"
 echo "  Model:   ${MODEL_ID:-gpt-5.4}"
 echo "============================================================"
+
+# Fetch FactSet data if credentials are set and cache is missing
+if [ -n "$FACTSET_USER_ID" ] && [ -n "$FACTSET_API_KEY" ]; then
+    echo "Checking FactSet data cache..."
+    python fetch_factset.py
+fi
 
 LAYER="$LAYER" python orchestrator.py

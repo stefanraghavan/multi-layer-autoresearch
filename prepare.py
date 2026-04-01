@@ -174,8 +174,125 @@ def compute_streak_features(df: pd.DataFrame) -> pd.DataFrame:
     return features
 
 
-def compute_all_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute the full feature matrix from OHLCV data.
+def compute_factset_features(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
+    """Load cached FactSet data and compute fundamental features.
+
+    Features computed:
+    - estimate_revision_30d: % change in consensus estimate over 30 days
+    - estimate_revision_90d: % change in consensus estimate over 90 days
+    - analyst_count: number of analysts covering
+    - last_surprise_pct: most recent earnings surprise (actual vs estimate)
+    - avg_surprise_pct: average surprise over last 4 quarters
+    - short_interest_ratio: days to cover
+
+    All values are forward-filled to daily and shifted by 1 day for point-in-time.
+    ETFs and tickers without cached data get all zeros (neutral).
+    """
+    features = pd.DataFrame(index=df.index)
+    factset_cols = [
+        "estimate_revision_30d", "estimate_revision_90d",
+        "analyst_count", "last_surprise_pct", "avg_surprise_pct",
+        "short_interest_ratio",
+    ]
+
+    # Try to load cached FactSet data
+    cache_path = DATA_DIR / ticker.lower() / "factset_cache.json"
+    if not cache_path.exists():
+        for col in factset_cols:
+            features[col] = 0.0
+        return features
+
+    try:
+        cache = json.loads(cache_path.read_text())
+    except Exception:
+        for col in factset_cols:
+            features[col] = 0.0
+        return features
+
+    if cache.get("is_etf", False):
+        for col in factset_cols:
+            features[col] = 0.0
+        return features
+
+    # Consensus estimate revision momentum
+    consensus = cache.get("consensus_time_series", [])
+    if consensus:
+        est_df = pd.DataFrame(consensus)
+        est_df["date"] = pd.to_datetime(est_df["date"])
+        est_df = est_df.set_index("date").sort_index()
+
+        if "estimate" in est_df.columns and len(est_df) > 1:
+            # Reindex to daily and forward-fill
+            daily_est = est_df["estimate"].reindex(df.index, method="ffill")
+            # Revision = % change over 30/90 day windows
+            features["estimate_revision_30d"] = daily_est.pct_change(periods=30).shift(1).fillna(0)
+            features["estimate_revision_90d"] = daily_est.pct_change(periods=90).shift(1).fillna(0)
+        else:
+            features["estimate_revision_30d"] = 0.0
+            features["estimate_revision_90d"] = 0.0
+
+        if "num_analysts" in est_df.columns:
+            daily_analysts = est_df["num_analysts"].reindex(df.index, method="ffill")
+            features["analyst_count"] = daily_analysts.shift(1).fillna(0) / 20.0  # normalize
+        else:
+            features["analyst_count"] = 0.0
+    else:
+        features["estimate_revision_30d"] = 0.0
+        features["estimate_revision_90d"] = 0.0
+        features["analyst_count"] = 0.0
+
+    # Earnings surprise features
+    actuals = cache.get("actuals", [])
+    if actuals:
+        surprises = [a["surprise_pct"] for a in actuals if a.get("surprise_pct") is not None]
+        report_dates = [a.get("report_date") for a in actuals if a.get("report_date") and a.get("surprise_pct") is not None]
+
+        if surprises and report_dates:
+            # Build a time series of surprises at their report dates
+            surprise_series = pd.Series(dtype=float, index=df.index)
+            avg_surprise_series = pd.Series(dtype=float, index=df.index)
+
+            sorted_actuals = sorted(
+                [(rd, sp) for rd, sp in zip(report_dates, surprises) if rd],
+                key=lambda x: x[0],
+            )
+
+            for i, (rd, sp) in enumerate(sorted_actuals):
+                try:
+                    rd_date = pd.Timestamp(rd)
+                    if rd_date in surprise_series.index or rd_date <= surprise_series.index[-1]:
+                        # Find the nearest date >= report_date
+                        mask = surprise_series.index >= rd_date
+                        if mask.any():
+                            idx = surprise_series.index[mask][0]
+                            surprise_series.loc[idx] = sp / 100.0  # normalize to fraction
+                            # Rolling average of last 4 surprises
+                            recent = [x[1] for x in sorted_actuals[max(0, i-3):i+1]]
+                            avg_surprise_series.loc[idx] = sum(recent) / len(recent) / 100.0
+                except Exception:
+                    pass
+
+            features["last_surprise_pct"] = surprise_series.ffill().shift(1).fillna(0)
+            features["avg_surprise_pct"] = avg_surprise_series.ffill().shift(1).fillna(0)
+        else:
+            features["last_surprise_pct"] = 0.0
+            features["avg_surprise_pct"] = 0.0
+    else:
+        features["last_surprise_pct"] = 0.0
+        features["avg_surprise_pct"] = 0.0
+
+    # Short interest
+    si = cache.get("short_interest")
+    if si and si.get("short_interest_ratio") is not None:
+        features["short_interest_ratio"] = float(si["short_interest_ratio"]) / 10.0  # normalize
+    else:
+        features["short_interest_ratio"] = 0.0
+
+    return features
+
+
+def compute_all_features(df: pd.DataFrame, ticker: str = "SPY") -> pd.DataFrame:
+    """Compute the full feature matrix from OHLCV + FactSet data.
 
     *** LAYER 1 MODIFIES THIS FUNCTION ***
     The Feature Research agent adds/removes feature computations here.
@@ -212,6 +329,9 @@ def compute_all_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # Streak features
     parts.append(compute_streak_features(df))
+
+    # FactSet fundamental features (estimate revisions, surprise, short interest)
+    parts.append(compute_factset_features(df, ticker))
 
     features = pd.concat(parts, axis=1)
     return features
@@ -337,7 +457,7 @@ def main() -> None:
         print(f"\nProcessing {ticker}...", flush=True)
 
         # Compute features and target
-        features_df = compute_all_features(df)
+        features_df = compute_all_features(df, ticker=ticker)
         target = compute_target(df)
 
         # Align and drop NaN rows (features have warmup periods)
