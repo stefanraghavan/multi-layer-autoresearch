@@ -80,6 +80,18 @@ def compute_volume_features(df: pd.DataFrame, windows: list[int]) -> pd.DataFram
     return features
 
 
+def compute_volatility_regime(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute short-vs-long volatility regime using PREVIOUS day's returns."""
+    daily_ret = np.log(df["Close"].shift(1) / df["Close"].shift(2))
+    features = pd.DataFrame(index=df.index)
+    vol_5 = daily_ret.rolling(5).std()
+    vol_10 = daily_ret.rolling(10).std()
+    vol_60 = daily_ret.rolling(60).std()
+    features["volatility_ratio_5_60"] = vol_5 / (vol_60 + 1e-10)
+    features["volatility_ratio_10_60"] = vol_10 / (vol_60 + 1e-10)
+    return features
+
+
 def compute_price_position(df: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
     """Compute price position within rolling high-low range using PREVIOUS day."""
     features = pd.DataFrame(index=df.index)
@@ -304,6 +316,9 @@ def compute_all_features(df: pd.DataFrame, ticker: str = "SPY") -> pd.DataFrame:
 
     # Volatility at multiple windows
     parts.append(compute_volatility(df, windows=[5, 10, 20, 60]))
+
+    # Volatility regime ratios
+    parts.append(compute_volatility_regime(df))
 
     # Volume features
     parts.append(compute_volume_features(df, windows=[5, 10, 20]))

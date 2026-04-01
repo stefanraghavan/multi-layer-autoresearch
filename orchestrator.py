@@ -1,13 +1,13 @@
-"""Orchestrator: runs the three-layer nested autoresearch loop.
+"""Orchestrator: runs the two-layer autoresearch loop.
 
-Layer 1 (Feature Research) is the outermost loop.
-  For each feature experiment, Layer 2 (Architecture) runs N architecture experiments.
-    For each architecture experiment, Layer 3 (Training) runs M hyperparameter experiments.
+Layer 1 (Feature Research) is the outer loop.
+  For each feature experiment, Layer 3 (Training) runs N hyperparameter experiments.
+
+Architecture is locked (Deep & Cross with grouped token self-attention).
 
 Usage:
-    python orchestrator.py                          # Full three-layer loop
-    LAYER=3 python orchestrator.py                  # Layer 3 only (fixed features + arch)
-    LAYER=2 python orchestrator.py                  # Layer 2 + 3 (fixed features)
+    python orchestrator.py                          # Full two-layer loop (features + params)
+    LAYER=3 python orchestrator.py                  # Layer 3 only (fixed features)
     TICKERS=SPY python orchestrator.py              # Specify ticker(s)
 """
 
@@ -26,7 +26,6 @@ from lib.config import (
     MODEL_ID,
     TICKERS,
     LAYER1_EXPERIMENTS_PER_CYCLE,
-    LAYER2_EXPERIMENTS_PER_EVAL,
     LAYER3_EXPERIMENTS_PER_EVAL,
 )
 from lib.db import (
@@ -36,7 +35,6 @@ from lib.db import (
 )
 from lib.phases import (
     run_layer1_experiment,
-    run_layer2_experiment,
     run_layer3_experiment,
     parse_result_text,
 )
@@ -52,7 +50,7 @@ def _prepare_data(runtime_dir: Path) -> None:
         cwd=str(runtime_dir),
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=600,
         env={**os.environ, "DATA_DIR": str(runtime_dir / "data")},
     )
     if result.returncode != 0:
@@ -73,12 +71,6 @@ def _init_git(runtime_dir: Path) -> None:
             capture_output=True,
         )
         _log("  Git repo initialized.")
-
-
-def _extract_accuracy_from_result(result_text: str) -> float | None:
-    """Parse val_accuracy from agent result text."""
-    parsed = parse_result_text(result_text)
-    return parsed.get("val_accuracy")
 
 
 # ---------------------------------------------------------------------------
@@ -141,81 +133,14 @@ async def run_layer3_loop(runtime_dir: Path, n_experiments: int, baseline_accura
     return best_accuracy
 
 
-async def run_layer2_loop(runtime_dir: Path, n_experiments: int, baseline_accuracy: float = 0.0) -> float:
-    """Run Layer 2 (architecture search) for N experiments.
-    Each experiment includes a full Layer 3 tuning cycle.
-    Returns best val_accuracy.
-    """
-    _log(f"\n{'='*60}")
-    _log(f"LAYER 2: Running {n_experiments} architecture experiments")
-    _log(f"  (each with {LAYER3_EXPERIMENTS_PER_EVAL} Layer 3 runs)")
-    _log(f"  Baseline to beat: {baseline_accuracy:.4f}")
-    _log(f"{'='*60}")
-
-    best_accuracy = baseline_accuracy
-
-    for i in range(n_experiments):
-        run = _run_id("L2", i)
-        _log(f"\n=== Layer 2, Experiment {i+1}/{n_experiments} (best={best_accuracy:.4f}) ===")
-
-        try:
-            # Layer 2 agent proposes an architecture change
-            result_text, stats = await run_layer2_experiment(
-                runtime_dir, i, best_accuracy,
-            )
-            parsed = parse_result_text(result_text)
-            val_acc = parsed.get("val_accuracy")
-            status = parsed.get("status", "crash")
-            description = parsed.get("description", "unknown")
-
-            # After architecture change, run Layer 3 to tune hyperparameters
-            if status == "keep":
-                _log(f"  Architecture kept. Running Layer 3 tuning...")
-                l3_best = await run_layer3_loop(runtime_dir, LAYER3_EXPERIMENTS_PER_EVAL)
-                if l3_best > (val_acc or 0):
-                    val_acc = l3_best
-
-            if val_acc is not None and val_acc > best_accuracy:
-                best_accuracy = val_acc
-
-            insert_experiment(
-                run_id=run,
-                layer="architecture",
-                description=description,
-                accuracy=val_acc,
-                status=status,
-                duration_ms=stats.duration_ms,
-                tokens_in=stats.tokens_in,
-                tokens_out=stats.tokens_out,
-                cost_usd=stats.cost_usd,
-                model_id=MODEL_ID,
-            )
-            insert_results_log("architecture", run, val_acc, "accuracy", status, description)
-
-            _log(f"  Architecture result: val_accuracy={val_acc}, status={status}")
-
-        except Exception as exc:
-            _log(f"  !! Layer 2 experiment {i} failed: {exc}")
-            insert_experiment(
-                run_id=run,
-                layer="architecture",
-                description=f"error: {exc}",
-                status="crash",
-                error_message=str(exc),
-            )
-
-    _log(f"\nLayer 2 complete. Best accuracy: {best_accuracy:.4f}")
-    return best_accuracy
-
-
 async def run_layer1_loop(runtime_dir: Path, n_experiments: int, baseline_accuracy: float = 0.0) -> float:
     """Run Layer 1 (feature research) for N experiments.
-    Each experiment includes a full Layer 2 + Layer 3 cycle.
+    Each kept feature experiment triggers a full Layer 3 tuning cycle.
     Returns best val_accuracy.
     """
     _log(f"\n{'='*60}")
     _log(f"LAYER 1: Running {n_experiments} feature experiments")
-    _log(f"  (each with {LAYER2_EXPERIMENTS_PER_EVAL} Layer 2 + {LAYER3_EXPERIMENTS_PER_EVAL} Layer 3 runs)")
+    _log(f"  (each kept experiment triggers {LAYER3_EXPERIMENTS_PER_EVAL} Layer 3 runs)")
     _log(f"  Baseline to beat: {baseline_accuracy:.4f}")
     _log(f"{'='*60}")
 
@@ -237,12 +162,12 @@ async def run_layer1_loop(runtime_dir: Path, n_experiments: int, baseline_accura
             status = parsed.get("status", "crash")
             description = parsed.get("description", "unknown")
 
-            # After feature change, run Layer 2 + 3 to find best arch + params
+            # After feature change, run Layer 3 to tune hyperparameters
             if status == "keep":
-                _log(f"  Features kept. Running Layer 2 + 3 optimization...")
-                l2_best = await run_layer2_loop(runtime_dir, LAYER2_EXPERIMENTS_PER_EVAL)
-                if l2_best > (val_acc or 0):
-                    val_acc = l2_best
+                _log(f"  Features kept. Running Layer 3 tuning ({LAYER3_EXPERIMENTS_PER_EVAL} experiments)...")
+                l3_best = await run_layer3_loop(runtime_dir, LAYER3_EXPERIMENTS_PER_EVAL, val_acc or best_accuracy)
+                if l3_best > (val_acc or 0):
+                    val_acc = l3_best
 
             if val_acc is not None and val_acc > best_accuracy:
                 best_accuracy = val_acc
@@ -289,13 +214,16 @@ async def main() -> None:
     _log("Multi-Layer Autoresearch")
     _log(f"  Model: {MODEL_ID}")
     _log(f"  Tickers: {TICKERS}")
-    _log(f"  Starting from Layer: {start_layer}")
+    _log(f"  Mode: {'Layer 3 only (params)' if start_layer == 3 else 'Full (features + params)'}")
     _log("=" * 60)
 
     # Initialize
     init_database()
     rt_dir = initialize_runtime()
     _log(f"Runtime: {rt_dir}")
+
+    # Copy FactSet cache into runtime data dir if available
+    _copy_factset_cache(rt_dir)
 
     # Prepare data
     _prepare_data(rt_dir)
@@ -321,13 +249,11 @@ async def main() -> None:
                 break
     _log(f"Baseline val_accuracy: {baseline_accuracy:.4f}")
 
-    # Run the appropriate layer loop, seeded with baseline accuracy
+    # Run the appropriate layer loop
     started = perf_counter()
 
     if start_layer == 3:
         best = await run_layer3_loop(rt_dir, LAYER3_EXPERIMENTS_PER_EVAL, baseline_accuracy)
-    elif start_layer == 2:
-        best = await run_layer2_loop(rt_dir, LAYER2_EXPERIMENTS_PER_EVAL, baseline_accuracy)
     else:
         best = await run_layer1_loop(rt_dir, LAYER1_EXPERIMENTS_PER_CYCLE, baseline_accuracy)
 
@@ -340,6 +266,28 @@ async def main() -> None:
     _log(f"  Improvement: {best - baseline_accuracy:+.4f}")
     _log(f"  Time: {elapsed/3600:.1f} hours")
     _log(f"{'='*60}")
+
+
+def _copy_factset_cache(runtime_dir: Path) -> None:
+    """Copy FactSet cached data from repo data/ into runtime data/ so prepare.py can find it."""
+    import shutil
+    from lib.paths import repo_dir
+
+    # Check both repo-level data/ and the fetch_factset.py output location
+    for source_base in [repo_dir() / "data", Path(__file__).parent / "data"]:
+        if not source_base.exists():
+            continue
+        for ticker_dir in source_base.iterdir():
+            if not ticker_dir.is_dir():
+                continue
+            cache_file = ticker_dir / "factset_cache.json"
+            if cache_file.exists():
+                dest_dir = runtime_dir / "data" / ticker_dir.name
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                dest_file = dest_dir / "factset_cache.json"
+                if not dest_file.exists():
+                    shutil.copy2(cache_file, dest_file)
+                    _log(f"  Copied FactSet cache for {ticker_dir.name}")
 
 
 if __name__ == "__main__":

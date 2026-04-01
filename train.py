@@ -3,7 +3,7 @@
 Single-file PyTorch implementation. Binary classification: up or down at close.
 Walk-forward validation (no random splits).
 
-*** LAYER 2 MODIFIES THE MODEL ARCHITECTURE ***
+Architecture is LOCKED (Deep & Cross with grouped token self-attention).
 *** LAYER 3 MODIFIES THE HYPERPARAMETERS ***
 
 Usage:
@@ -39,24 +39,28 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
 # Hyperparameters — LAYER 3 MODIFIES THIS SECTION
 # ---------------------------------------------------------------------------
 
-LEARNING_RATE = 3e-4
-WEIGHT_DECAY = 1e-4
-BATCH_SIZE = 256
-DROPOUT = 0.1
-OPTIMIZER = "adam"  # adam, sgd, adamw
+LEARNING_RATE = 1e-3
+WEIGHT_DECAY = 0.0
+BATCH_SIZE = 192
+DROPOUT = 0.2
+OPTIMIZER = "adamw"  # adam, sgd, adamw
 LR_SCHEDULE = "cosine"  # cosine, constant, step
-WARMUP_STEPS = 100
-LABEL_SMOOTHING = 0.05
+WARMUP_STEPS = 50
+LABEL_SMOOTHING = 0.0
 
 # ---------------------------------------------------------------------------
-# Model Architecture — LAYER 2 MODIFIES THIS SECTION
+# Model Architecture — LOCKED (do not modify)
 # ---------------------------------------------------------------------------
 
-HIDDEN_DIMS = [32, 16]  # MLP hidden layer dimensions — right-sized for ~30 features
-ACTIVATION = "relu"  # relu, gelu, silu, tanh
-USE_BATCH_NORM = True
-USE_RESIDUAL = False  # residual connections (requires matching dims)
-USE_LAYER_NORM = False
+HIDDEN_DIMS = [64, 32]  # Deep branch hidden dims for explicit feature-cross modeling
+ACTIVATION = "gelu"  # relu, gelu, silu, tanh
+USE_BATCH_NORM = False
+USE_RESIDUAL = False
+USE_LAYER_NORM = True
+CROSS_LAYERS = 2
+GROUP_EMBED_DIM = 16
+GROUP_ATTENTION_HEADS = 4
+GROUP_FF_DIM = 32
 
 
 def get_activation() -> nn.Module:
@@ -66,40 +70,173 @@ def get_activation() -> nn.Module:
         "silu": nn.SiLU(),
         "tanh": nn.Tanh(),
     }
-    return activations.get(ACTIVATION, nn.ReLU())
+    return activations.get(ACTIVATION, nn.GELU())
+
+
+def get_feature_groups(input_dim: int) -> list[list[int]]:
+    """Create semantically meaningful feature groups when the default feature set is present."""
+    if input_dim == 38:
+        return [
+            [0, 1, 2, 3, 4],          # returns by horizon
+            [5, 6, 7, 8],             # realized volatility by horizon
+            [9, 10, 11],              # volume ratios
+            [12, 13, 14, 15],         # price position features
+            [16, 17, 18, 19],         # moving-average distance features
+            [20, 21],                 # overnight / intraday range context
+            [22, 23, 24, 25, 26],     # RSI / MACD oscillators
+            [27, 28, 29, 30],         # calendar seasonality encodings
+            [31],                     # streak / persistence
+            [32, 33, 34, 35, 36, 37], # analyst / surprise / short-interest features
+        ]
+
+    n_groups = max(1, min(8, input_dim))
+    return [chunk.tolist() for chunk in np.array_split(np.arange(input_dim), n_groups) if len(chunk) > 0]
+
+
+class CrossLayer(nn.Module):
+    """Explicit multiplicative feature-cross layer."""
+
+    def __init__(self, input_dim: int):
+        super().__init__()
+        self.weight = nn.Parameter(torch.empty(input_dim))
+        self.bias = nn.Parameter(torch.zeros(input_dim))
+        nn.init.normal_(self.weight, mean=0.0, std=0.02)
+
+    def forward(self, x0: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        cross_scale = torch.sum(x * self.weight, dim=-1, keepdim=True)
+        return x0 * cross_scale + self.bias + x
+
+
+class MLPBlock(nn.Module):
+    def __init__(self, input_dim: int, output_dim: int):
+        super().__init__()
+
+        layers = [nn.Linear(input_dim, output_dim)]
+        if USE_BATCH_NORM:
+            layers.append(nn.BatchNorm1d(output_dim))
+        if USE_LAYER_NORM:
+            layers.append(nn.LayerNorm(output_dim))
+        layers.append(get_activation())
+        layers.append(nn.Dropout(DROPOUT))
+
+        self.block = nn.Sequential(*layers)
+        self.use_residual = USE_RESIDUAL and input_dim == output_dim
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.block(x)
+        if self.use_residual:
+            h = h + x
+        return h
+
+
+class GroupTower(nn.Module):
+    """Small per-group encoder that turns related raw features into one token."""
+
+    def __init__(self, input_dim: int, output_dim: int):
+        super().__init__()
+        hidden_dim = max(output_dim, input_dim * 2)
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            get_activation(),
+            nn.Dropout(DROPOUT),
+            nn.Linear(hidden_dim, output_dim),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+
+class GroupAttentionBlock(nn.Module):
+    """Lightweight self-attention mixer over semantic feature-group tokens."""
+
+    def __init__(self, embed_dim: int):
+        super().__init__()
+        self.attn_norm = nn.LayerNorm(embed_dim)
+        self.attn = nn.MultiheadAttention(
+            embed_dim=embed_dim,
+            num_heads=GROUP_ATTENTION_HEADS,
+            dropout=DROPOUT,
+            batch_first=True,
+        )
+        self.ff_norm = nn.LayerNorm(embed_dim)
+        self.ff = nn.Sequential(
+            nn.Linear(embed_dim, GROUP_FF_DIM),
+            get_activation(),
+            nn.Dropout(DROPOUT),
+            nn.Linear(GROUP_FF_DIM, embed_dim),
+        )
+
+    def forward(self, tokens: torch.Tensor) -> torch.Tensor:
+        attn_input = self.attn_norm(tokens)
+        attn_output, _ = self.attn(attn_input, attn_input, attn_input)
+        tokens = tokens + attn_output
+        tokens = tokens + self.ff(self.ff_norm(tokens))
+        return tokens
 
 
 class StockPredictor(nn.Module):
-    """Feedforward neural network for binary stock direction prediction.
+    """Deep & Cross tabular model with grouped token self-attention.
 
-    *** LAYER 2 MODIFIES THIS CLASS ***
-    The Architecture agent can change the model structure entirely —
-    add LSTM layers, attention, temporal convolutions, etc.
+    The model keeps the strong explicit cross network for raw factor interactions,
+    while adding a lightweight semantic encoder that:
+    - maps related feature families into group tokens
+    - mixes those tokens with self-attention
+    - conditions the deep branch on the resulting group summary
+
+    This aims to capture structured relationships like return/volatility/regime
+    interactions without giving up the constrained inductive bias that has worked
+    best so far on this dataset.
     """
 
     def __init__(self, input_dim: int):
         super().__init__()
 
-        layers = []
-        prev_dim = input_dim
+        self.input_norm = nn.LayerNorm(input_dim)
+        self.feature_groups = get_feature_groups(input_dim)
+        self.group_towers = nn.ModuleList([
+            GroupTower(len(group), GROUP_EMBED_DIM) for group in self.feature_groups
+        ])
+        self.group_mixer = GroupAttentionBlock(GROUP_EMBED_DIM)
+        self.group_output_norm = nn.LayerNorm(GROUP_EMBED_DIM)
 
+        self.cross_layers = nn.ModuleList([CrossLayer(input_dim) for _ in range(CROSS_LAYERS)])
+
+        deep_layers = []
+        prev_dim = input_dim + GROUP_EMBED_DIM
         for hidden_dim in HIDDEN_DIMS:
-            layers.append(nn.Linear(prev_dim, hidden_dim))
-            if USE_BATCH_NORM:
-                layers.append(nn.BatchNorm1d(hidden_dim))
-            if USE_LAYER_NORM:
-                layers.append(nn.LayerNorm(hidden_dim))
-            layers.append(get_activation())
-            layers.append(nn.Dropout(DROPOUT))
+            deep_layers.append(MLPBlock(prev_dim, hidden_dim))
             prev_dim = hidden_dim
+        self.deep = nn.Sequential(*deep_layers)
 
-        self.backbone = nn.Sequential(*layers)
-        self.head = nn.Linear(prev_dim, 1)
+        fused_dim = input_dim + prev_dim + GROUP_EMBED_DIM
+        head_hidden = max(32, prev_dim)
+        self.head = nn.Sequential(
+            nn.Linear(fused_dim, head_hidden),
+            get_activation(),
+            nn.Dropout(DROPOUT),
+            nn.Linear(head_hidden, 1),
+        )
+
+    def encode_groups(self, x: torch.Tensor) -> torch.Tensor:
+        tokens = [tower(x[:, group]) for group, tower in zip(self.feature_groups, self.group_towers)]
+        tokens = torch.stack(tokens, dim=1)
+        tokens = self.group_mixer(tokens)
+        tokens = self.group_output_norm(tokens)
+        return tokens.mean(dim=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        h = self.backbone(x)
-        return self.head(h).squeeze(-1)
+        x = self.input_norm(x)
+        group_summary = self.encode_groups(x)
 
+        cross = x
+        for cross_layer in self.cross_layers:
+            cross = cross_layer(x, cross)
+
+        deep_input = torch.cat([x, group_summary], dim=-1)
+        deep = self.deep(deep_input)
+        fused = torch.cat([cross, deep, group_summary], dim=-1)
+        return self.head(fused).squeeze(-1)
 
 # ---------------------------------------------------------------------------
 # Training loop

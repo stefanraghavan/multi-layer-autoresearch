@@ -2,9 +2,8 @@
 # Run the multi-layer autoresearch system.
 #
 # Usage:
-#   ./run.sh              # Full three-layer loop (Layer 1 -> 2 -> 3)
+#   ./run.sh              # Full two-layer loop (features + params)
 #   ./run.sh 3            # Layer 3 only (hyperparameter tuning)
-#   ./run.sh 2            # Layer 2 + 3 (architecture + hyperparameters)
 #   ./run.sh 1            # Full stack (same as no argument)
 
 set -e

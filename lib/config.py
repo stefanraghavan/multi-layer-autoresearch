@@ -67,20 +67,13 @@ VALIDATION_YEARS = int(os.environ.get("VALIDATION_YEARS", "1"))
 # Layer-specific experiment budgets
 # ---------------------------------------------------------------------------
 
-# Layer 3 (Training/Parameters): number of experiments per architecture evaluation
-LAYER3_EXPERIMENTS_PER_EVAL = int(os.environ.get("LAYER3_EXPERIMENTS_PER_EVAL", "12"))
-# Layer 3: time budget per training run in seconds
-LAYER3_TIME_BUDGET = int(os.environ.get("LAYER3_TIME_BUDGET", "300"))
+# Layer 3 (Training/Parameters): number of experiments per feature set evaluation
+LAYER3_EXPERIMENTS_PER_EVAL = int(os.environ.get("LAYER3_EXPERIMENTS_PER_EVAL", "50"))
 # Layer 3: postmortem frequency (every N experiments)
 LAYER3_POSTMORTEM_EVERY = int(os.environ.get("LAYER3_POSTMORTEM_EVERY", "20"))
 
-# Layer 2 (Architecture): number of architecture experiments per feature set evaluation
-LAYER2_EXPERIMENTS_PER_EVAL = int(os.environ.get("LAYER2_EXPERIMENTS_PER_EVAL", "10"))
-# Layer 2: postmortem frequency
-LAYER2_POSTMORTEM_EVERY = int(os.environ.get("LAYER2_POSTMORTEM_EVERY", "5"))
-
 # Layer 1 (Feature Research): number of feature set experiments per outer cycle
-LAYER1_EXPERIMENTS_PER_CYCLE = int(os.environ.get("LAYER1_EXPERIMENTS_PER_CYCLE", "10"))
+LAYER1_EXPERIMENTS_PER_CYCLE = int(os.environ.get("LAYER1_EXPERIMENTS_PER_CYCLE", "20"))
 # Layer 1: postmortem frequency
 LAYER1_POSTMORTEM_EVERY = int(os.environ.get("LAYER1_POSTMORTEM_EVERY", "5"))
 
