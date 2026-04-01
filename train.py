@@ -39,7 +39,7 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
 # Hyperparameters — LAYER 3 MODIFIES THIS SECTION
 # ---------------------------------------------------------------------------
 
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 3e-4
 WEIGHT_DECAY = 1e-4
 BATCH_SIZE = 64
 DROPOUT = 0.3
