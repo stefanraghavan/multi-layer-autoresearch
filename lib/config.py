@@ -51,8 +51,8 @@ VERBOSE = os.environ.get("VERBOSE", "true").strip().lower() not in {
 # ---------------------------------------------------------------------------
 
 # Comma-separated list of tickers to include in the dataset.
-# Default: broad market + sector ETFs + liquid large-caps (24 tickers)
-DEFAULT_TICKERS = "SPY,QQQ,IWM,DIA,XLF,XLE,XLK,XLV,XLI,XLP,XLU,XLB,XLC,XLRE,AAPL,MSFT,AMZN,GOOGL,META,NVDA,TSLA,JPM,JNJ,V"
+# Default: 10 liquid large-caps with FactSet fundamental coverage
+DEFAULT_TICKERS = "AAPL,MSFT,AMZN,GOOGL,META,NVDA,TSLA,JPM,JNJ,V"
 TICKERS = [
     t.strip().upper()
     for t in os.environ.get("TICKERS", DEFAULT_TICKERS).split(",")

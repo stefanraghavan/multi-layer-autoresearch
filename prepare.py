@@ -35,15 +35,8 @@ MIN_TRADING_DAYS = 252 * (TRAIN_YEARS + VAL_YEARS)
 # Output directory (relative to script location or DATA_DIR)
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
 
-# Default ticker universe: broad market ETFs + sector ETFs + liquid large-caps
-DEFAULT_TICKERS = (
-    # Broad market
-    "SPY,QQQ,IWM,DIA,"
-    # Sector ETFs
-    "XLF,XLE,XLK,XLV,XLI,XLP,XLU,XLB,XLC,XLRE,"
-    # Liquid large-caps
-    "AAPL,MSFT,AMZN,GOOGL,META,NVDA,TSLA,JPM,JNJ,V"
-)
+# Default ticker universe: liquid large-caps with FactSet fundamental coverage
+DEFAULT_TICKERS = "AAPL,MSFT,AMZN,GOOGL,META,NVDA,TSLA,JPM,JNJ,V"
 
 
 # ---------------------------------------------------------------------------
