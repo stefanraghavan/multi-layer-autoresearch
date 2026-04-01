@@ -68,7 +68,7 @@ VALIDATION_YEARS = int(os.environ.get("VALIDATION_YEARS", "1"))
 # ---------------------------------------------------------------------------
 
 # Layer 3 (Training/Parameters): number of experiments per feature set evaluation
-LAYER3_EXPERIMENTS_PER_EVAL = int(os.environ.get("LAYER3_EXPERIMENTS_PER_EVAL", "50"))
+LAYER3_EXPERIMENTS_PER_EVAL = int(os.environ.get("LAYER3_EXPERIMENTS_PER_EVAL", "100"))
 # Layer 3: postmortem frequency (every N experiments)
 LAYER3_POSTMORTEM_EVERY = int(os.environ.get("LAYER3_POSTMORTEM_EVERY", "20"))
 
