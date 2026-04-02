@@ -27,11 +27,15 @@ Current state:
 - Best val_accuracy so far: {best_val_accuracy:.6f}
 - Postmortem due: {"YES — do post-mortem first" if experiment_num > 0 and experiment_num % LAYER1_POSTMORTEM_EVERY == 0 else "no"}
 
+{"KNOWN ISSUE (fix first if experiment 0): The features `last_surprise_pct` and `avg_surprise_pct` in compute_factset_features() are ALL ZEROS. The code tries to build earnings surprise features from factset_cache.json actuals data but the logic is broken. Diagnose why — check if the actuals data exists in the cache, check how report_dates are being matched to the index, and fix or replace the broken code. Earnings surprise is one of the most documented anomalies in finance — getting this working should add real signal." if experiment_num == 0 else ""}
+
 Instructions:
 1. Read `prepare.py`, `results.tsv`, and the feature-research SKILL.md.
 2. Propose ONE feature change. This can be:
    a. Modifying existing feature computations in prepare.py
-   b. **Fetching NEW data from FactSet** — you have full access to the FactSet SDK.
+   b. **Removing** features that may be adding noise (fewer features can improve accuracy)
+   c. **Fixing** broken features (check if any features are all zeros — that means the data pipeline is broken)
+   d. **Fetching NEW data from FactSet** — you have full access to the FactSet SDK.
       Read `.claude/skills/feature-research/references/factset-reference.md` for the API reference.
       Look at existing fetch scripts in `.claude/skills/feature-research/scripts/` for patterns.
       You can write new fetch scripts, run them to cache data, then compute features from the cached data.

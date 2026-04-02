@@ -68,7 +68,7 @@ VALIDATION_YEARS = int(os.environ.get("VALIDATION_YEARS", "2"))
 # ---------------------------------------------------------------------------
 
 # Number of feature experiments per run
-LAYER1_EXPERIMENTS_PER_CYCLE = int(os.environ.get("NUM_EXPERIMENTS", "50"))
+LAYER1_EXPERIMENTS_PER_CYCLE = int(os.environ.get("NUM_EXPERIMENTS", "500"))
 # Postmortem frequency (every N experiments)
 LAYER1_POSTMORTEM_EVERY = int(os.environ.get("POSTMORTEM_EVERY", "10"))
 
