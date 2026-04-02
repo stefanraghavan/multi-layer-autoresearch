@@ -36,6 +36,7 @@ TIME_BUDGET = int(os.environ.get("TIME_BUDGET", "60"))  # seconds
 EARLY_STOP_PATIENCE = int(os.environ.get("EARLY_STOP_PATIENCE", "200"))  # epochs without val_loss improvement
 TICKER = os.environ.get("TICKER", "_combined").lower()
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
+SEED = int(os.environ.get("SEED", "0"))  # 0 = no fixed seed
 
 # ---------------------------------------------------------------------------
 # Hyperparameters — LAYER 3 MODIFIES THIS SECTION
@@ -97,6 +98,11 @@ class StockPredictor(nn.Module):
 # ---------------------------------------------------------------------------
 
 def train() -> dict:
+    # Set seed for reproducibility when SEED > 0
+    if SEED > 0:
+        torch.manual_seed(SEED)
+        np.random.seed(SEED)
+
     if torch.cuda.is_available():
         device = torch.device("cuda")
     elif torch.backends.mps.is_available():

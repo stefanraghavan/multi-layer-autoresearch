@@ -40,10 +40,16 @@ Instructions:
 3. Do NOT modify train.py — the model and hyperparameters are locked.
 4. Commit prepare.py (and any new fetch scripts or cache files).
 5. Re-run data prep: `python prepare.py`
-6. Run training: `python train.py > run.log 2>&1`
-7. Extract metrics, log to results.tsv.
-8. If val_accuracy > {best_val_accuracy:.6f}, keep. Otherwise revert with `git reset --hard HEAD~1`.
-9. Report the result.
+6. Run training **3 times** with different seeds and average the val_accuracy to reduce noise:
+   ```
+   python train.py > run1.log 2>&1
+   SEED=42 python train.py > run2.log 2>&1
+   SEED=123 python train.py > run3.log 2>&1
+   ```
+   Extract val_accuracy from each run and compute the mean. Use the mean as the experiment result.
+7. Log to results.tsv: the averaged val_accuracy.
+8. If averaged val_accuracy > {best_val_accuracy:.6f}, keep. Otherwise revert with `git reset --hard HEAD~1`.
+9. Report the result (include individual and averaged accuracy).
 
 PRIORITY: The baseline price/volume features are well-explored. The highest-value experiments involve
 fetching new fundamental data from FactSet (valuation multiples, balance sheet, transcripts, segment
