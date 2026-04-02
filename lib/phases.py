@@ -72,15 +72,27 @@ Current state:
 - Postmortem due: {"YES — do post-mortem first" if experiment_num > 0 and experiment_num % LAYER1_POSTMORTEM_EVERY == 0 else "no"}
 
 Instructions:
-1. Read `prepare.py` and `results.tsv`.
-2. Propose ONE feature change to `prepare.py` (the compute_all_features function or add new feature functions).
+1. Read `prepare.py`, `results.tsv`, and the feature-research SKILL.md.
+2. Propose ONE feature change. This can be:
+   a. Modifying existing feature computations in prepare.py
+   b. **Fetching NEW data from FactSet** — you have full access to the FactSet SDK.
+      Read `.claude/skills/feature-research/references/factset-reference.md` for the API reference.
+      Look at existing fetch scripts in `.claude/skills/feature-research/scripts/` for patterns.
+      You can write new fetch scripts, run them to cache data, then compute features from the cached data.
+      FactSet credentials are available as FACTSET_USER_ID and FACTSET_API_KEY env vars.
+      Available SDKs: fds.sdk.FactSetEstimates, fds.sdk.FactSetFundamentals, fds.sdk.EventsandTranscripts, fds.sdk.FactSetGlobalPrices.
 3. Do NOT modify train.py — the model architecture and hyperparameters are handled separately.
-4. Commit prepare.py.
+4. Commit prepare.py (and any new fetch scripts).
 5. Re-run data prep: `python prepare.py`
 6. Run training: `python train.py > run.log 2>&1`
 7. Extract metrics, log to results.tsv.
 8. If val_accuracy > {best_val_accuracy:.6f}, keep. Otherwise revert with `git reset --hard HEAD~1`.
 9. Report the result.
+
+PRIORITY: The baseline price/volume features are well-explored. The highest-value experiments involve
+fetching new fundamental data from FactSet (valuation multiples, balance sheet, transcripts, segment
+estimates) and computing features from it. The FactSet consensus cache already exists at
+data/{{ticker}}/factset_cache.json — but there is much more data available via the SDK.
 
 Remember: all features must be point-in-time. No future data leakage.
 
