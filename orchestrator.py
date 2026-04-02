@@ -28,6 +28,8 @@ from lib.config import (
     LAYER1_EXPERIMENTS_PER_CYCLE,
     LAYER3_EXPERIMENTS_PER_EVAL,
 )
+
+SKIP_LAYER3 = os.environ.get("SKIP_LAYER3", "false").strip().lower() in {"1", "true", "yes"}
 from lib.db import (
     init_database,
     insert_experiment,
@@ -163,11 +165,13 @@ async def run_layer1_loop(runtime_dir: Path, n_experiments: int, baseline_accura
             description = parsed.get("description", "unknown")
 
             # After feature change, run Layer 3 to tune hyperparameters
-            if status == "keep":
+            if status == "keep" and not SKIP_LAYER3:
                 _log(f"  Features kept. Running Layer 3 tuning ({LAYER3_EXPERIMENTS_PER_EVAL} experiments)...")
                 l3_best = await run_layer3_loop(runtime_dir, LAYER3_EXPERIMENTS_PER_EVAL, val_acc or best_accuracy)
                 if l3_best > (val_acc or 0):
                     val_acc = l3_best
+            elif status == "keep" and SKIP_LAYER3:
+                _log(f"  Features kept. (Layer 3 skipped — SKIP_LAYER3=true)")
 
             if val_acc is not None and val_acc > best_accuracy:
                 best_accuracy = val_acc
