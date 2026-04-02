@@ -1,4 +1,4 @@
-"""Phase runners for Layer 1 (features) and Layer 3 (hyperparameters)."""
+"""Phase runner for feature research experiments."""
 
 from __future__ import annotations
 
@@ -8,66 +8,22 @@ from lib.agent import run_agent
 from lib.config import (
     AgentExecution,
     EXPERIMENT_TOOLS,
-    POSTMORTEM_TOOLS,
     LAYER1_POSTMORTEM_EVERY,
-    LAYER3_POSTMORTEM_EVERY,
 )
 from lib.utils import _log
 
 
-# ---------------------------------------------------------------------------
-# Layer 3: Training / Parameters
-# ---------------------------------------------------------------------------
-
-
-async def run_layer3_experiment(
+async def run_feature_experiment(
     runtime_dir: Path,
     experiment_num: int,
     best_val_accuracy: float,
 ) -> tuple[str, AgentExecution]:
-    """Run a single Layer 3 hyperparameter experiment."""
+    """Run a single feature research experiment."""
 
-    prompt = f"""You are the Layer 3 (Training/Parameters) agent. Follow the training skill.
+    prompt = f"""You are a feature research agent for daily stock direction prediction. Follow the feature-research skill.
 
 Current state:
 - Experiment number: {experiment_num}
-- Best val_accuracy so far: {best_val_accuracy:.6f}
-- Postmortem due: {"YES — do post-mortem first" if experiment_num > 0 and experiment_num % LAYER3_POSTMORTEM_EVERY == 0 else "no"}
-
-Instructions:
-1. Read `train.py` and `results.tsv` (create results.tsv with header if it doesn't exist).
-2. Propose ONE hyperparameter change to `train.py` (only the hyperparameters section).
-3. Do NOT modify the model architecture — it is locked.
-4. Commit, run `python train.py > run.log 2>&1`, extract metrics, log to results.tsv.
-5. If val_accuracy > {best_val_accuracy:.6f}, keep. Otherwise revert with `git reset --hard HEAD~1`.
-6. Report the result.
-
-{"IMPORTANT: Post-mortem is due. Before running the next experiment, analyze results.tsv, identify patterns, and update the Research Notes section in .claude/skills/training/SKILL.md. Commit the post-mortem update." if experiment_num > 0 and experiment_num % LAYER3_POSTMORTEM_EVERY == 0 else ""}
-
-Output your result as:
-RESULT: val_accuracy=<value> status=<keep|discard|crash> description=<what you tried>
-"""
-
-    stats = await run_agent(runtime_dir, prompt, EXPERIMENT_TOOLS)
-    return stats.result_text, stats
-
-
-# ---------------------------------------------------------------------------
-# Layer 1: Feature Research
-# ---------------------------------------------------------------------------
-
-
-async def run_layer1_experiment(
-    runtime_dir: Path,
-    experiment_num: int,
-    best_val_accuracy: float,
-) -> tuple[str, AgentExecution]:
-    """Run a single Layer 1 feature research experiment."""
-
-    prompt = f"""You are the Layer 1 (Feature Research) agent. Follow the feature-research skill.
-
-Current state:
-- Feature experiment number: {experiment_num}
 - Best val_accuracy so far: {best_val_accuracy:.6f}
 - Postmortem due: {"YES — do post-mortem first" if experiment_num > 0 and experiment_num % LAYER1_POSTMORTEM_EVERY == 0 else "no"}
 
@@ -81,8 +37,8 @@ Instructions:
       You can write new fetch scripts, run them to cache data, then compute features from the cached data.
       FactSet credentials are available as FACTSET_USER_ID and FACTSET_API_KEY env vars.
       Available SDKs: fds.sdk.FactSetEstimates, fds.sdk.FactSetFundamentals, fds.sdk.EventsandTranscripts, fds.sdk.FactSetGlobalPrices.
-3. Do NOT modify train.py — the model architecture and hyperparameters are handled separately.
-4. Commit prepare.py (and any new fetch scripts).
+3. Do NOT modify train.py — the model and hyperparameters are locked.
+4. Commit prepare.py (and any new fetch scripts or cache files).
 5. Re-run data prep: `python prepare.py`
 6. Run training: `python train.py > run.log 2>&1`
 7. Extract metrics, log to results.tsv.

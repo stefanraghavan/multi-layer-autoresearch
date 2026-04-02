@@ -1,17 +1,17 @@
 #!/bin/bash
-# Run the multi-layer autoresearch system.
+# Run the feature research autoresearch system.
 #
 # Usage:
-#   ./run.sh              # Full two-layer loop (features + params)
-#   ./run.sh 3            # Layer 3 only (hyperparameter tuning)
-#   ./run.sh 1            # Full stack (same as no argument)
+#   ./run.sh              # Run 50 feature experiments (default)
+#   ./run.sh 100          # Run 100 feature experiments
+#   RESET_RUNTIME=true ./run.sh   # Fresh start
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-LAYER="${1:-1}"
+NUM_EXPERIMENTS="${1:-50}"
 
 # Create venv if it doesn't exist
 if [ ! -d ".venv" ]; then
@@ -38,10 +38,10 @@ if [ -f .env ]; then
 fi
 
 echo "============================================================"
-echo "Multi-Layer Autoresearch"
-echo "  Layer:   $LAYER"
-echo "  Tickers: ${TICKERS:-default universe (30 stocks)}"
-echo "  Model:   ${MODEL_ID:-gpt-5.4}"
+echo "Feature Research Autoresearch"
+echo "  Experiments: $NUM_EXPERIMENTS"
+echo "  Tickers:     ${TICKERS:-default universe (30 stocks)}"
+echo "  Model:       ${MODEL_ID:-gpt-5.4}"
 echo "============================================================"
 
 # Fetch FactSet data if credentials are set and cache is missing
@@ -50,4 +50,4 @@ if [ -n "$FACTSET_USER_ID" ] && [ -n "$FACTSET_API_KEY" ]; then
     python fetch_factset.py
 fi
 
-LAYER="$LAYER" python orchestrator.py
+NUM_EXPERIMENTS="$NUM_EXPERIMENTS" python orchestrator.py

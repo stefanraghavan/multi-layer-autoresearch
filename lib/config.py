@@ -64,18 +64,13 @@ TRAIN_YEARS = int(os.environ.get("TRAIN_YEARS", "8"))
 VALIDATION_YEARS = int(os.environ.get("VALIDATION_YEARS", "2"))
 
 # ---------------------------------------------------------------------------
-# Layer-specific experiment budgets
+# Experiment budgets
 # ---------------------------------------------------------------------------
 
-# Layer 3 (Training/Parameters): number of experiments per feature set evaluation
-LAYER3_EXPERIMENTS_PER_EVAL = int(os.environ.get("LAYER3_EXPERIMENTS_PER_EVAL", "30"))
-# Layer 3: postmortem frequency (every N experiments)
-LAYER3_POSTMORTEM_EVERY = int(os.environ.get("LAYER3_POSTMORTEM_EVERY", "20"))
-
-# Layer 1 (Feature Research): number of feature set experiments per outer cycle
-LAYER1_EXPERIMENTS_PER_CYCLE = int(os.environ.get("LAYER1_EXPERIMENTS_PER_CYCLE", "20"))
-# Layer 1: postmortem frequency
-LAYER1_POSTMORTEM_EVERY = int(os.environ.get("LAYER1_POSTMORTEM_EVERY", "5"))
+# Number of feature experiments per run
+LAYER1_EXPERIMENTS_PER_CYCLE = int(os.environ.get("NUM_EXPERIMENTS", "50"))
+# Postmortem frequency (every N experiments)
+LAYER1_POSTMORTEM_EVERY = int(os.environ.get("POSTMORTEM_EVERY", "10"))
 
 # ---------------------------------------------------------------------------
 # Tools configuration
