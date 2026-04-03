@@ -6,4 +6,6 @@ __pycache__/
 *.pyc
 *.egg-info/
 run.log
+run_output.log
+nohup.out
 results.tsv
