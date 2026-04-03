@@ -26,7 +26,7 @@ You have access to **external data sources** via FactSet APIs. You can fetch fun
 
 - Model architecture (Layer 2's job)
 - Hyperparameters (Layer 3's job)
-- The target variable (binary: close > previous close)
+- The target variable (binary: did the stock outperform its sector today? i.e., stock return > sector average return)
 - The walk-forward train/validation split logic
 - The evaluation protocol and data download functions
 

@@ -1,17 +1,28 @@
 # Multi-Layer Autoresearch — Research Notes
 
+## Previous Approach: Daily Direction (completed)
+
+Ran 45 experiments predicting raw daily up/down direction. Hit ~53% accuracy ceiling.
+Key finding: cash-flow fundamentals (FCF yield, operating CF yield, operating leverage)
+are the strongest FactSet features. Transcript sentiment, accounting ratios, and
+consensus dispersion did not help. See postmortem notes in runtime for full analysis.
+
+---
+
 ## Current Approach (April 2026)
 
 ### What we're testing
 
-A single-layer autoresearch loop focused on **feature research** for daily stock direction prediction. The agent autonomously proposes features, fetches data from FactSet, tests each feature against a locked model, and keeps/discards based on validation accuracy. Postmortems every 10 experiments let the agent learn what types of features work.
+A single-layer autoresearch loop focused on **feature research** for **sector-relative daily stock direction prediction**. Instead of predicting "does the stock go up?", the model predicts "does the stock outperform its sector today?" This strips out market/sector beta and focuses on stock-specific alpha — which is exactly what FactSet fundamental features should be good at.
+
+The agent autonomously proposes features, fetches data from FactSet, tests each feature against a locked model, and keeps/discards based on validation accuracy. Postmortems every 10 experiments let the agent learn what types of features work.
 
 ### Setup
 
 - **Model**: Simple MLP [64, 32] with LayerNorm, GELU, Dropout — locked, not modified
 - **Hyperparameters**: Locked (AdamW, LR=1e-3, batch=256, dropout=0.2, constant schedule)
 - **Data**: 30 liquid stocks across 6 sectors, 8 years training / 2 years validation
-- **Target**: Binary daily close direction (up/down)
+- **Target**: Binary sector-relative direction (did stock outperform its sector today?)
 - **Evaluation**: 3-run averaged val_accuracy to reduce noise
 - **Agent**: GPT-5.4 via OpenAI Responses API
 - **Experiment budget**: 500 experiments (~2-3 days, ~$500-1000 API cost)

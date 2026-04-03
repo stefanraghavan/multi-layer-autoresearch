@@ -349,12 +349,66 @@ def compute_all_features(df: pd.DataFrame, ticker: str = "SPY") -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Target computation
+# Sector mapping and target computation
 # ---------------------------------------------------------------------------
 
-def compute_target(df: pd.DataFrame) -> pd.Series:
-    """Binary target: 1 if close > previous close, 0 otherwise."""
-    return (df["Close"] > df["Close"].shift(1)).astype(np.float32)
+SECTOR_MAP = {
+    # Tech
+    "AAPL": "tech", "MSFT": "tech", "AMZN": "tech", "GOOGL": "tech",
+    "META": "tech", "NVDA": "tech", "TSLA": "tech", "CRM": "tech",
+    "ADBE": "tech", "ORCL": "tech",
+    # Financials
+    "JPM": "financials", "BAC": "financials", "GS": "financials",
+    "MS": "financials", "V": "financials", "MA": "financials",
+    # Healthcare
+    "JNJ": "healthcare", "UNH": "healthcare", "PFE": "healthcare", "ABT": "healthcare",
+    # Consumer
+    "WMT": "consumer", "HD": "consumer", "MCD": "consumer", "NKE": "consumer",
+    # Industrials / Energy / Other
+    "CAT": "industrial", "BA": "industrial", "XOM": "energy",
+    "CVX": "energy", "NEE": "utilities", "UPS": "industrial",
+}
+
+
+def compute_sector_relative_target(
+    all_data: dict[str, pd.DataFrame],
+) -> dict[str, pd.Series]:
+    """Compute sector-relative binary target for each ticker.
+
+    Target = 1 if the stock's daily return exceeds its sector's average return, 0 otherwise.
+    This strips out market/sector beta and asks: did this stock outperform its peers today?
+
+    Uses previous-day-to-today close return for both the stock and the sector average.
+    """
+    # Compute daily returns for all tickers
+    returns = {}
+    for ticker, df in all_data.items():
+        returns[ticker] = df["Close"].pct_change()
+
+    # Group tickers by sector
+    sectors: dict[str, list[str]] = {}
+    for ticker in all_data:
+        sector = SECTOR_MAP.get(ticker.upper(), "other")
+        sectors.setdefault(sector, []).append(ticker)
+
+    # Compute sector average return per day
+    sector_avg_returns: dict[str, pd.Series] = {}
+    for sector, tickers in sectors.items():
+        sector_returns = pd.DataFrame({t: returns[t] for t in tickers if t in returns})
+        sector_avg_returns[sector] = sector_returns.mean(axis=1)
+
+    # Target: 1 if stock return > sector average return
+    targets = {}
+    for ticker in all_data:
+        sector = SECTOR_MAP.get(ticker.upper(), "other")
+        stock_ret = returns[ticker]
+        sector_ret = sector_avg_returns[sector]
+        # Align indices
+        aligned = pd.DataFrame({"stock": stock_ret, "sector": sector_ret}).dropna()
+        targets[ticker] = (aligned["stock"] > aligned["sector"]).astype(np.float32)
+        targets[ticker].index = aligned.index
+
+    return targets
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +513,13 @@ def main() -> None:
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Compute sector-relative targets (needs all tickers at once)
+    print(f"\nComputing sector-relative targets...", flush=True)
+    sector_targets = compute_sector_relative_target(raw_data)
+    for sector, tickers in sorted({v: [k for k, v2 in SECTOR_MAP.items() if v2 == v and k in raw_data] for v in set(SECTOR_MAP.values())}.items()):
+        if tickers:
+            print(f"  {sector}: {tickers}", flush=True)
+
     # Process each ticker and also build a combined dataset
     all_X_train, all_y_train = [], []
     all_X_val, all_y_val = [], []
@@ -467,9 +528,12 @@ def main() -> None:
     for ticker, df in raw_data.items():
         print(f"\nProcessing {ticker}...", flush=True)
 
-        # Compute features and target
+        # Compute features and sector-relative target
         features_df = compute_all_features(df, ticker=ticker)
-        target = compute_target(df)
+        target = sector_targets.get(ticker)
+        if target is None:
+            print(f"  WARNING: No sector-relative target for {ticker}, skipping", flush=True)
+            continue
 
         # Align and drop NaN rows (features have warmup periods)
         combined = pd.concat([features_df, target.rename("target")], axis=1).dropna()
@@ -485,7 +549,7 @@ def main() -> None:
 
         print(f"  Features: {len(feature_names)}", flush=True)
         print(f"  Samples: {len(X)}", flush=True)
-        print(f"  Up-day fraction: {y.mean():.3f}", flush=True)
+        print(f"  Outperform-sector fraction: {y.mean():.3f}", flush=True)
 
         # Create walk-forward split
         split = create_walk_forward_split(X, y, dates)
@@ -510,8 +574,8 @@ def main() -> None:
             "n_val": int(len(split["X_val"])),
             "train_date_range": [str(split["dates_train"][0])[:10], str(split["dates_train"][-1])[:10]],
             "val_date_range": [str(split["dates_val"][0])[:10], str(split["dates_val"][-1])[:10]],
-            "up_day_fraction_train": float(split["y_train"].mean()),
-            "up_day_fraction_val": float(split["y_val"].mean()),
+            "outperform_fraction_train": float(split["y_train"].mean()),
+            "outperform_fraction_val": float(split["y_val"].mean()),
         }
         (ticker_dir / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
 
@@ -545,8 +609,8 @@ def main() -> None:
             "n_features": len(combined_feature_names),
             "n_train": int(len(X_train_all)),
             "n_val": int(len(X_val_all)),
-            "up_day_fraction_train": float(y_train_all.mean()),
-            "up_day_fraction_val": float(y_val_all.mean()),
+            "outperform_fraction_train": float(y_train_all.mean()),
+            "outperform_fraction_val": float(y_val_all.mean()),
         }
         (combined_dir / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
 
