@@ -35,6 +35,9 @@ MIN_TRADING_DAYS = 252 * (TRAIN_YEARS + VAL_YEARS)
 # Output directory (relative to script location or DATA_DIR)
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
 
+# Event window: only include days within EVENT_WINDOW_DAYS of an earnings announcement
+EVENT_WINDOW_DAYS = int(os.environ.get("EVENT_WINDOW_DAYS", "10"))
+
 # Default ticker universe: 30 liquid stocks with FactSet fundamental coverage
 # Diversified across sectors for robust cross-stock pattern learning
 DEFAULT_TICKERS = (
@@ -349,6 +352,62 @@ def compute_all_features(df: pd.DataFrame, ticker: str = "SPY") -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Earnings date extraction and event window filtering
+# ---------------------------------------------------------------------------
+
+
+def get_earnings_dates(ticker: str) -> list[pd.Timestamp]:
+    """Extract earnings announcement dates from FactSet fundamentals cache.
+
+    Uses eps_report_date from the quarterly fundamentals data.
+    """
+    cache_path = DATA_DIR / ticker.lower() / "factset_fundamentals_qtr.json"
+    if not cache_path.exists():
+        return []
+
+    try:
+        data = json.loads(cache_path.read_text())
+    except Exception:
+        return []
+
+    records = data.get("records", [])
+    dates = set()
+    for r in records:
+        rd = r.get("eps_report_date") or r.get("report_date")
+        if rd:
+            try:
+                dates.add(pd.Timestamp(str(rd)[:10]))
+            except Exception:
+                pass
+
+    return sorted(dates)
+
+
+def filter_event_window(
+    df: pd.DataFrame,
+    earnings_dates: list[pd.Timestamp],
+    window_days: int = EVENT_WINDOW_DAYS,
+) -> pd.DataFrame:
+    """Filter DataFrame to only include rows within window_days of an earnings date.
+
+    Keeps rows from the earnings date through window_days trading days after.
+    This captures the post-earnings reaction period where transcript/surprise
+    features are most informative.
+    """
+    if not earnings_dates:
+        return df  # no earnings dates known, keep everything
+
+    mask = pd.Series(False, index=df.index)
+    for ed in earnings_dates:
+        # Include earnings day through window_days calendar days after
+        window_start = ed
+        window_end = ed + pd.Timedelta(days=window_days)
+        mask |= (df.index >= window_start) & (df.index <= window_end)
+
+    return df[mask]
+
+
+# ---------------------------------------------------------------------------
 # Sector mapping and target computation
 # ---------------------------------------------------------------------------
 
@@ -446,24 +505,27 @@ def create_walk_forward_split(
     train_years: int = TRAIN_YEARS,
     val_years: int = VAL_YEARS,
 ) -> dict:
-    """Create walk-forward train/validation split.
+    """Create walk-forward train/validation split by date.
 
     Uses the most recent val_years as validation, everything before as training.
+    Splits by calendar date (not by count) to work with event-filtered data.
     """
-    n = len(dates)
-    val_days = 252 * val_years
-    train_end = n - val_days
+    dates_ts = pd.DatetimeIndex(dates)
+    cutoff_date = dates_ts.max() - pd.DateOffset(years=val_years)
 
-    if train_end < 252:
-        raise ValueError(f"Insufficient data: {n} days, need at least {252 + val_days}")
+    train_mask = dates_ts <= cutoff_date
+    val_mask = dates_ts > cutoff_date
+
+    if train_mask.sum() < 20:
+        raise ValueError(f"Insufficient training data: {train_mask.sum()} samples before cutoff {cutoff_date.date()}")
 
     return {
-        "X_train": features[:train_end],
-        "y_train": targets[:train_end],
-        "dates_train": dates[:train_end],
-        "X_val": features[train_end:],
-        "y_val": targets[train_end:],
-        "dates_val": dates[train_end:],
+        "X_train": features[train_mask],
+        "y_train": targets[train_mask],
+        "dates_train": dates[train_mask],
+        "X_val": features[val_mask],
+        "y_val": targets[val_mask],
+        "dates_val": dates[val_mask],
     }
 
 
@@ -504,6 +566,7 @@ def main() -> None:
     print(f"Preparing data for {len(tickers)} tickers: {tickers}", flush=True)
     print(f"Date range: {start_date} to {end_date}", flush=True)
     print(f"Train: {TRAIN_YEARS} years, Validation: {VAL_YEARS} year(s)", flush=True)
+    print(f"Event window: {EVENT_WINDOW_DAYS} days after earnings", flush=True)
 
     # Download
     raw_data = download_data(tickers, start_date, end_date)
@@ -538,17 +601,24 @@ def main() -> None:
         # Align and drop NaN rows (features have warmup periods)
         combined = pd.concat([features_df, target.rename("target")], axis=1).dropna()
 
+        # Filter to event window (days near earnings announcements)
+        earnings_dates = get_earnings_dates(ticker)
+        all_days = len(combined)
+        combined = filter_event_window(combined, earnings_dates, EVENT_WINDOW_DAYS)
+        event_days = len(combined)
+
         feature_names = [c for c in combined.columns if c != "target"]
         X = combined[feature_names].values.astype(np.float32)
         y = combined["target"].values.astype(np.float32)
         dates = combined.index.values
 
-        if len(X) < 252 * 2:
-            print(f"  WARNING: Only {len(X)} samples for {ticker}, skipping (need at least {252*2})", flush=True)
+        if len(X) < 20:
+            print(f"  WARNING: Only {len(X)} event-window samples for {ticker}, skipping", flush=True)
             continue
 
         print(f"  Features: {len(feature_names)}", flush=True)
-        print(f"  Samples: {len(X)}", flush=True)
+        print(f"  All days: {all_days}, Event-window days: {event_days} ({100*event_days/max(all_days,1):.0f}%)", flush=True)
+        print(f"  Earnings dates found: {len(earnings_dates)}", flush=True)
         print(f"  Outperform-sector fraction: {y.mean():.3f}", flush=True)
 
         # Create walk-forward split

@@ -26,9 +26,12 @@ You have access to **external data sources** via FactSet APIs. You can fetch fun
 
 - Model architecture (Layer 2's job)
 - Hyperparameters (Layer 3's job)
-- The target variable (binary: did the stock outperform its sector today? i.e., stock return > sector average return)
+- The target variable (binary: did the stock outperform its sector today? — only on days within 10 days of earnings announcements)
+- The event window filtering (only event days are included in training/validation)
 - The walk-forward train/validation split logic
 - The evaluation protocol and data download functions
+
+**IMPORTANT CONTEXT**: The dataset is filtered to only include days within 10 days of earnings announcements. This means every sample has fresh transcript/surprise/fundamental data. Features related to earnings events (transcript tone, surprise magnitude, margin changes) are at their most informative in this window. Features that are constant between earnings (long-horizon price momentum, calendar effects) may be less useful in this setup.
 
 ## Point-in-Time Rule
 
