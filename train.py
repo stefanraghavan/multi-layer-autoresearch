@@ -1,17 +1,13 @@
-"""Neural network training for daily stock direction prediction.
+"""Training for daily stock direction prediction.
 
-Single-file PyTorch implementation. Binary classification: up or down at close.
-Walk-forward validation (no random splits).
-
-Architecture is a simple MLP — the focus is on feature research (Layer 1)
-and hyperparameter tuning (Layer 3), not model complexity.
-
-*** LAYER 3 MODIFIES THE HYPERPARAMETERS ***
+Supports two model types:
+- XGBoost (gradient boosted trees) — default, best for tabular data
+- MLP (simple neural network) — set MODEL_TYPE=mlp
 
 Usage:
-    python train.py                         # Train with defaults
+    python train.py                         # XGBoost (default)
+    MODEL_TYPE=mlp python train.py          # MLP
     TICKER=_combined python train.py        # Train on combined dataset
-    TIME_BUDGET=60 python train.py          # 60-second budget
 """
 
 from __future__ import annotations
@@ -23,85 +19,88 @@ import time
 from pathlib import Path
 
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import DataLoader, TensorDataset
 
 # ---------------------------------------------------------------------------
 # Constants (fixed evaluation protocol — do not modify)
 # ---------------------------------------------------------------------------
 
-TIME_BUDGET = int(os.environ.get("TIME_BUDGET", "60"))  # seconds
-EARLY_STOP_PATIENCE = int(os.environ.get("EARLY_STOP_PATIENCE", "200"))  # epochs without val_loss improvement
 TICKER = os.environ.get("TICKER", "_combined").lower()
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
 SEED = int(os.environ.get("SEED", "0"))  # 0 = no fixed seed
+MODEL_TYPE = os.environ.get("MODEL_TYPE", "xgboost").lower()  # xgboost or mlp
 
 # ---------------------------------------------------------------------------
-# Hyperparameters — LAYER 3 MODIFIES THIS SECTION
+# XGBoost hyperparameters
 # ---------------------------------------------------------------------------
 
-LEARNING_RATE = 1e-3
-WEIGHT_DECAY = 0.0
-BATCH_SIZE = 256
-DROPOUT = 0.2
-OPTIMIZER = "adamw"  # adam, sgd, adamw
-LR_SCHEDULE = "cosine"  # cosine, constant, step
-WARMUP_STEPS = 50
-LABEL_SMOOTHING = 0.0
+XGB_N_ESTIMATORS = int(os.environ.get("XGB_N_ESTIMATORS", "500"))
+XGB_MAX_DEPTH = int(os.environ.get("XGB_MAX_DEPTH", "4"))
+XGB_LEARNING_RATE = float(os.environ.get("XGB_LEARNING_RATE", "0.05"))
+XGB_SUBSAMPLE = float(os.environ.get("XGB_SUBSAMPLE", "0.8"))
+XGB_COLSAMPLE_BYTREE = float(os.environ.get("XGB_COLSAMPLE_BYTREE", "0.8"))
+XGB_MIN_CHILD_WEIGHT = int(os.environ.get("XGB_MIN_CHILD_WEIGHT", "5"))
+XGB_REG_ALPHA = float(os.environ.get("XGB_REG_ALPHA", "0.1"))
+XGB_REG_LAMBDA = float(os.environ.get("XGB_REG_LAMBDA", "1.0"))
+XGB_EARLY_STOPPING = int(os.environ.get("XGB_EARLY_STOPPING", "50"))
 
 # ---------------------------------------------------------------------------
-# Model Architecture — LOCKED (simple MLP, do not modify)
+# MLP hyperparameters (fallback)
 # ---------------------------------------------------------------------------
 
-HIDDEN_DIMS = [64, 32]
-ACTIVATION = "gelu"
-
-
-def get_activation() -> nn.Module:
-    activations = {
-        "relu": nn.ReLU(),
-        "gelu": nn.GELU(),
-        "silu": nn.SiLU(),
-        "tanh": nn.Tanh(),
-    }
-    return activations.get(ACTIVATION, nn.GELU())
-
-
-class StockPredictor(nn.Module):
-    """Simple MLP for binary stock direction prediction."""
-
-    def __init__(self, input_dim: int):
-        super().__init__()
-
-        layers = []
-        prev_dim = input_dim
-
-        for hidden_dim in HIDDEN_DIMS:
-            layers.append(nn.Linear(prev_dim, hidden_dim))
-            layers.append(nn.LayerNorm(hidden_dim))
-            layers.append(get_activation())
-            layers.append(nn.Dropout(DROPOUT))
-            prev_dim = hidden_dim
-
-        self.backbone = nn.Sequential(*layers)
-        self.head = nn.Linear(prev_dim, 1)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        h = self.backbone(x)
-        return self.head(h).squeeze(-1)
+MLP_LEARNING_RATE = 1e-3
+MLP_BATCH_SIZE = 256
+MLP_DROPOUT = 0.2
+MLP_HIDDEN_DIMS = [64, 32]
+MLP_TIME_BUDGET = 60
+MLP_EARLY_STOP_PATIENCE = 200
 
 
 # ---------------------------------------------------------------------------
-# Training loop
+# Training
 # ---------------------------------------------------------------------------
 
-def train() -> dict:
-    # Set seed for reproducibility when SEED > 0
-    if SEED > 0:
-        torch.manual_seed(SEED)
-        np.random.seed(SEED)
+def train_xgboost(X_train, y_train, X_val, y_val, seed):
+    """Train XGBoost classifier."""
+    from xgboost import XGBClassifier
+
+    model = XGBClassifier(
+        n_estimators=XGB_N_ESTIMATORS,
+        max_depth=XGB_MAX_DEPTH,
+        learning_rate=XGB_LEARNING_RATE,
+        subsample=XGB_SUBSAMPLE,
+        colsample_bytree=XGB_COLSAMPLE_BYTREE,
+        min_child_weight=XGB_MIN_CHILD_WEIGHT,
+        reg_alpha=XGB_REG_ALPHA,
+        reg_lambda=XGB_REG_LAMBDA,
+        random_state=seed if seed > 0 else None,
+        eval_metric="logloss",
+        early_stopping_rounds=XGB_EARLY_STOPPING,
+        verbosity=0,
+        use_label_encoder=False,
+    )
+
+    model.fit(
+        X_train, y_train,
+        eval_set=[(X_val, y_val)],
+        verbose=False,
+    )
+
+    val_probs = model.predict_proba(X_val)[:, 1]
+    train_probs = model.predict_proba(X_train)[:, 1]
+
+    return model, train_probs, val_probs, model.best_iteration
+
+
+def train_mlp(X_train, y_train, X_val, y_val, seed):
+    """Train simple MLP (fallback)."""
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    from torch.utils.data import DataLoader, TensorDataset
+
+    if seed > 0:
+        torch.manual_seed(seed)
+        np.random.seed(seed)
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -109,6 +108,85 @@ def train() -> dict:
         device = torch.device("mps")
     else:
         device = torch.device("cpu")
+
+    # Normalize
+    train_mean = X_train.mean(axis=0)
+    train_std = X_train.std(axis=0) + 1e-8
+    X_train_n = (X_train - train_mean) / train_std
+    X_val_n = (X_val - train_mean) / train_std
+
+    X_train_t = torch.tensor(X_train_n, dtype=torch.float32, device=device)
+    y_train_t = torch.tensor(y_train, dtype=torch.float32, device=device)
+    X_val_t = torch.tensor(X_val_n, dtype=torch.float32, device=device)
+    y_val_t = torch.tensor(y_val, dtype=torch.float32, device=device)
+
+    train_ds = TensorDataset(X_train_t, y_train_t)
+    train_loader = DataLoader(train_ds, batch_size=MLP_BATCH_SIZE, shuffle=True, drop_last=True)
+
+    # Build model
+    n_features = X_train.shape[1]
+    layers = []
+    prev_dim = n_features
+    for hidden_dim in MLP_HIDDEN_DIMS:
+        layers.extend([
+            nn.Linear(prev_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(MLP_DROPOUT),
+        ])
+        prev_dim = hidden_dim
+    layers.append(nn.Linear(prev_dim, 1))
+    model = nn.Sequential(*layers).to(device)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=MLP_LEARNING_RATE)
+
+    start_time = time.time()
+    best_val_loss = float("inf")
+    best_state = None
+    epochs_without_improvement = 0
+
+    epoch = 0
+    while True:
+        if time.time() - start_time >= MLP_TIME_BUDGET:
+            break
+        if epochs_without_improvement >= MLP_EARLY_STOP_PATIENCE:
+            break
+
+        model.train()
+        epoch += 1
+        for batch_X, batch_y in train_loader:
+            if time.time() - start_time >= MLP_TIME_BUDGET:
+                break
+            optimizer.zero_grad()
+            logits = model(batch_X).squeeze(-1)
+            loss = F.binary_cross_entropy_with_logits(logits, batch_y)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+
+        model.eval()
+        with torch.no_grad():
+            val_logits = model(X_val_t).squeeze(-1)
+            val_loss = F.binary_cross_entropy_with_logits(val_logits, y_val_t).item()
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+
+    if best_state:
+        model.load_state_dict(best_state)
+    model.eval()
+    with torch.no_grad():
+        val_probs = torch.sigmoid(model(X_val_t).squeeze(-1)).cpu().numpy()
+        train_probs = torch.sigmoid(model(X_train_t).squeeze(-1)).cpu().numpy()
+
+    return model, train_probs, val_probs, epoch
+
+
+def train() -> dict:
+    seed = SEED if SEED > 0 else 0
 
     # Load data
     ticker_dir = DATA_DIR / TICKER
@@ -125,139 +203,26 @@ def train() -> dict:
     n_features = X_train.shape[1]
 
     print(f"ticker:     {TICKER}", flush=True)
-    print(f"device:     {device}", flush=True)
+    print(f"model_type: {MODEL_TYPE}", flush=True)
     print(f"n_features: {n_features}", flush=True)
     print(f"n_train:    {len(X_train)}", flush=True)
     print(f"n_val:      {len(X_val)}", flush=True)
     print(f"baseline:   {y_val.mean():.4f}", flush=True)
 
-    # Normalize features (fit on train, apply to both)
-    train_mean = X_train.mean(axis=0)
-    train_std = X_train.std(axis=0) + 1e-8
-    X_train = (X_train - train_mean) / train_std
-    X_val = (X_val - train_mean) / train_std
-
-    # Convert to tensors
-    X_train_t = torch.tensor(X_train, dtype=torch.float32, device=device)
-    y_train_t = torch.tensor(y_train, dtype=torch.float32, device=device)
-    X_val_t = torch.tensor(X_val, dtype=torch.float32, device=device)
-    y_val_t = torch.tensor(y_val, dtype=torch.float32, device=device)
-
-    train_ds = TensorDataset(X_train_t, y_train_t)
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
-
-    # Model
-    model = StockPredictor(n_features).to(device)
-    n_params = sum(p.numel() for p in model.parameters())
-    print(f"n_params:   {n_params}", flush=True)
-
-    # Optimizer
-    if OPTIMIZER == "sgd":
-        optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY, momentum=0.9)
-    elif OPTIMIZER == "adamw":
-        optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
-    else:
-        optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
-
-    # Loss with label smoothing
-    def compute_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        if LABEL_SMOOTHING > 0:
-            targets = targets * (1 - LABEL_SMOOTHING) + 0.5 * LABEL_SMOOTHING
-        return F.binary_cross_entropy_with_logits(logits, targets)
-
-    # Training
     start_time = time.time()
-    best_val_acc = 0.0
-    best_val_loss = float("inf")
-    best_state = None
-    step = 0
-    epoch = 0
-    epochs_without_improvement = 0
 
-    while True:
-        elapsed = time.time() - start_time
-        if elapsed >= TIME_BUDGET:
-            print(f"  Time budget reached ({TIME_BUDGET}s).", flush=True)
-            break
-
-        if epochs_without_improvement >= EARLY_STOP_PATIENCE:
-            print(f"  Early stopping: no val_loss improvement for {EARLY_STOP_PATIENCE} epochs.", flush=True)
-            break
-
-        model.train()
-        epoch += 1
-
-        for batch_X, batch_y in train_loader:
-            elapsed = time.time() - start_time
-            if elapsed >= TIME_BUDGET:
-                break
-
-            step += 1
-
-            # Learning rate schedule
-            if LR_SCHEDULE == "cosine":
-                progress = min(elapsed / TIME_BUDGET, 1.0)
-                if step <= WARMUP_STEPS:
-                    lr = LEARNING_RATE * (step / max(WARMUP_STEPS, 1))
-                else:
-                    lr = LEARNING_RATE * 0.5 * (1 + np.cos(np.pi * progress))
-            elif LR_SCHEDULE == "step":
-                lr = LEARNING_RATE * (0.1 ** (elapsed / TIME_BUDGET))
-            else:
-                lr = LEARNING_RATE
-
-            for param_group in optimizer.param_groups:
-                param_group["lr"] = lr
-
-            optimizer.zero_grad()
-            logits = model(batch_X)
-            loss = compute_loss(logits, batch_y)
-
-            if torch.isnan(loss) or loss.item() > 100:
-                print("ERROR: Loss exploded, stopping early.", flush=True)
-                break
-
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-
-        # Evaluate every epoch
-        model.eval()
-        with torch.no_grad():
-            val_logits = model(X_val_t)
-            val_loss = F.binary_cross_entropy_with_logits(val_logits, y_val_t).item()
-            val_probs = torch.sigmoid(val_logits)
-            val_preds = (val_probs >= 0.5).float()
-            val_acc = (val_preds == y_val_t).float().mean().item()
-
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_val_acc = val_acc
-            best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
-            epochs_without_improvement = 0
-        else:
-            epochs_without_improvement += 1
-
-        if epoch % 50 == 0:
-            print(f"  epoch {epoch:4d} | step {step:6d} | val_acc {val_acc:.4f} | val_loss {val_loss:.4f} | best_loss {best_val_loss:.4f} | patience {epochs_without_improvement}/{EARLY_STOP_PATIENCE} | lr {lr:.2e}", flush=True)
+    if MODEL_TYPE == "xgboost":
+        model, train_probs, val_probs, n_iters = train_xgboost(X_train, y_train, X_val, y_val, seed)
+        print(f"xgb_iters:  {n_iters}", flush=True)
+    else:
+        model, train_probs, val_probs, n_iters = train_mlp(X_train, y_train, X_val, y_val, seed)
 
     training_time = time.time() - start_time
 
-    # Final evaluation with best model
-    if best_state is not None:
-        model.load_state_dict(best_state)
-
-    model.eval()
-    with torch.no_grad():
-        val_logits = model(X_val_t)
-        val_probs = torch.sigmoid(val_logits).cpu().numpy()
-        val_preds = (val_probs >= 0.5).astype(np.float32)
-
-        train_logits = model(X_train_t)
-        train_probs = torch.sigmoid(train_logits).cpu().numpy()
-        train_preds = (train_probs >= 0.5).astype(np.float32)
-
     # Metrics
+    val_preds = (val_probs >= 0.5).astype(np.float32)
+    train_preds = (train_probs >= 0.5).astype(np.float32)
+
     val_acc = float((val_preds == y_val).mean())
     train_acc = float((train_preds == y_train).mean())
     val_log_loss = float(-np.mean(
@@ -265,27 +230,34 @@ def train() -> dict:
         + (1 - y_val) * np.log(np.clip(1 - val_probs, 1e-7, 1 - 1e-7))
     ))
 
-    # Print results in grep-friendly format (like autoresearch)
+    # Print results in grep-friendly format
     print(f"val_accuracy:       {val_acc:.6f}", flush=True)
     print(f"val_log_loss:       {val_log_loss:.6f}", flush=True)
     print(f"train_accuracy:     {train_acc:.6f}", flush=True)
-    print(f"best_val_accuracy:  {best_val_acc:.6f}", flush=True)
+    print(f"best_val_accuracy:  {val_acc:.6f}", flush=True)
     print(f"baseline_accuracy:  {y_val.mean():.6f}", flush=True)
     print(f"training_seconds:   {training_time:.1f}", flush=True)
-    print(f"total_epochs:       {epoch}", flush=True)
-    print(f"total_steps:        {step}", flush=True)
-    print(f"n_params:           {n_params}", flush=True)
+    print(f"total_epochs:       {n_iters}", flush=True)
+    print(f"n_params:           {n_features}", flush=True)
+
+    # Feature importance (XGBoost only)
+    if MODEL_TYPE == "xgboost" and hasattr(model, "feature_importances_"):
+        importances = model.feature_importances_
+        feature_names = metadata.get("feature_names", [f"f{i}" for i in range(n_features)])
+        sorted_idx = np.argsort(importances)[::-1]
+        print(f"\nTop 10 features by importance:", flush=True)
+        for i in sorted_idx[:10]:
+            print(f"  {feature_names[i]:40s} {importances[i]:.4f}", flush=True)
 
     return {
         "val_accuracy": val_acc,
         "val_log_loss": val_log_loss,
         "train_accuracy": train_acc,
-        "best_val_accuracy": best_val_acc,
+        "best_val_accuracy": val_acc,
         "baseline_accuracy": float(y_val.mean()),
         "training_seconds": training_time,
-        "total_epochs": epoch,
-        "total_steps": step,
-        "n_params": n_params,
+        "total_epochs": n_iters,
+        "n_params": n_features,
     }
 
 
