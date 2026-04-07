@@ -112,21 +112,38 @@ Removing long-horizon technical features (20d return, 60d vol, 200d MA) improved
 
 ---
 
+## Run 5: Confidence Threshold Analysis (completed)
+
+Analyzed XGBoost prediction probabilities to find high-conviction subset.
+Averaged over 5 random seeds for robustness.
+
+| Threshold | Avg Hit Rate | Std | Coverage | Avg Trades/2yr |
+|-----------|-------------|-----|----------|----------------|
+| 0.50 (all) | 54.1% | 0.2% | 100% | 1,928 |
+| 0.54 | **67.3%** | 4.3% | 10.3% | 199 |
+| 0.55 | **70.4%** | 5.1% | 5.6% | 108 |
+| **0.56** | **74.7%** | 7.2% | **3.6%** | **70** |
+| 0.58 | 66.8% | 6.3% | 2.1% | 40 |
+| 0.60 | 69.6% | 2.4% | 1.1% | 22 |
+
+**Key finding:** The model knows when it's confident. At the 0.55-0.56 threshold, hit rate jumps to 70-75% on ~70-108 trades over 2 years (~35-54 trades/year). This holds across 5 seeds (min 65%, max 89%).
+
+**Sweet spot:** 0.55 threshold — 70% hit rate, 108 trades, stable across seeds.
+
+---
+
 ## Next steps to explore
 
-### 1. Conditional prediction with abstention (highest priority)
-Only trade when XGBoost's predicted probability is above 60% or below 40%. Could push hit rate to 58-60% on fewer but higher-conviction predictions. Most directly useful for actual trading. Quick to implement — just filter predictions by confidence threshold.
+### 1. Rolling walk-forward validation (highest priority)
+The 70-75% hit rate at high conviction is on a single 2-year window. Rolling walk-forward across multiple regimes would validate whether this holds. Essential before trading real money.
 
-### 2. Rolling walk-forward validation
-Current 54.5% is on a single 2-year window. Rolling walk-forward across multiple regimes would validate whether this is real or regime-specific. Essential before trading real money.
-
-### 3. Single sector focus (tech only)
+### 2. Single sector focus (tech only)
 10 tech stocks where FactSet features are most homogeneous. Cross-sector heterogeneity adds noise — FCF margin means different things for JPM vs NVDA.
 
-### 4. Ticker/sector encoding
+### 3. Ticker/sector encoding
 Add categorical sector feature so XGBoost can learn sector-specific splits (e.g., transcripts matter more for tech than utilities).
 
-### 5. Multi-horizon targets
+### 4. Multi-horizon targets
 Predict 1/5/20-day forward excess returns instead of binary direction. More aligned with how quant funds actually trade.
 
 ---
