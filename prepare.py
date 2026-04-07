@@ -38,19 +38,33 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
 # Event window: only include days within EVENT_WINDOW_DAYS of an earnings announcement
 EVENT_WINDOW_DAYS = int(os.environ.get("EVENT_WINDOW_DAYS", "10"))
 
-# Default ticker universe: 30 liquid stocks with FactSet fundamental coverage
-# Diversified across sectors for robust cross-stock pattern learning
+# Default ticker universe: ~100 liquid S&P 500 stocks with FactSet coverage
 DEFAULT_TICKERS = (
-    # Tech
+    # Tech (20)
     "AAPL,MSFT,AMZN,GOOGL,META,NVDA,TSLA,CRM,ADBE,ORCL,"
-    # Financials
-    "JPM,BAC,GS,MS,V,MA,"
-    # Healthcare
-    "JNJ,UNH,PFE,ABT,"
-    # Consumer
-    "WMT,HD,MCD,NKE,"
-    # Industrials / Energy / Other
-    "CAT,BA,XOM,CVX,NEE,UPS"
+    "INTC,AMD,CSCO,AVGO,QCOM,TXN,NOW,INTU,AMAT,MU,"
+    # Financials (15)
+    "JPM,BAC,GS,MS,V,MA,WFC,C,AXP,BLK,"
+    "SCHW,USB,PNC,TFC,COF,"
+    # Healthcare (15)
+    "JNJ,UNH,PFE,ABT,TMO,ABBV,MRK,LLY,MDT,DHR,"
+    "BMY,AMGN,GILD,ISRG,SYK,"
+    # Consumer Discretionary (10)
+    "HD,MCD,NKE,SBUX,TJX,LOW,TGT,ROST,MAR,YUM,"
+    # Consumer Staples (8)
+    "WMT,PG,KO,PEP,COST,CL,MO,GIS,"
+    # Industrials (10)
+    "CAT,BA,UPS,HON,UNP,RTX,DE,GE,LMT,MMM,"
+    # Energy (6)
+    "XOM,CVX,COP,SLB,EOG,MPC,"
+    # Utilities (4)
+    "NEE,DUK,SO,D,"
+    # Real Estate (4)
+    "AMT,PLD,CCI,EQIX,"
+    # Materials (4)
+    "LIN,APD,SHW,ECL,"
+    # Communication (4)
+    "DIS,CMCSA,NFLX,T"
 )
 
 
@@ -415,17 +429,45 @@ SECTOR_MAP = {
     # Tech
     "AAPL": "tech", "MSFT": "tech", "AMZN": "tech", "GOOGL": "tech",
     "META": "tech", "NVDA": "tech", "TSLA": "tech", "CRM": "tech",
-    "ADBE": "tech", "ORCL": "tech",
+    "ADBE": "tech", "ORCL": "tech", "INTC": "tech", "AMD": "tech",
+    "CSCO": "tech", "AVGO": "tech", "QCOM": "tech", "TXN": "tech",
+    "NOW": "tech", "INTU": "tech", "AMAT": "tech", "MU": "tech",
     # Financials
     "JPM": "financials", "BAC": "financials", "GS": "financials",
     "MS": "financials", "V": "financials", "MA": "financials",
+    "WFC": "financials", "C": "financials", "AXP": "financials",
+    "BLK": "financials", "SCHW": "financials", "USB": "financials",
+    "PNC": "financials", "TFC": "financials", "COF": "financials",
     # Healthcare
-    "JNJ": "healthcare", "UNH": "healthcare", "PFE": "healthcare", "ABT": "healthcare",
-    # Consumer
-    "WMT": "consumer", "HD": "consumer", "MCD": "consumer", "NKE": "consumer",
-    # Industrials / Energy / Other
-    "CAT": "industrial", "BA": "industrial", "XOM": "energy",
-    "CVX": "energy", "NEE": "utilities", "UPS": "industrial",
+    "JNJ": "healthcare", "UNH": "healthcare", "PFE": "healthcare",
+    "ABT": "healthcare", "TMO": "healthcare", "ABBV": "healthcare",
+    "MRK": "healthcare", "LLY": "healthcare", "MDT": "healthcare",
+    "DHR": "healthcare", "BMY": "healthcare", "AMGN": "healthcare",
+    "GILD": "healthcare", "ISRG": "healthcare", "SYK": "healthcare",
+    # Consumer Discretionary
+    "HD": "consumer_disc", "MCD": "consumer_disc", "NKE": "consumer_disc",
+    "SBUX": "consumer_disc", "TJX": "consumer_disc", "LOW": "consumer_disc",
+    "TGT": "consumer_disc", "ROST": "consumer_disc", "MAR": "consumer_disc",
+    "YUM": "consumer_disc",
+    # Consumer Staples
+    "WMT": "consumer_staples", "PG": "consumer_staples", "KO": "consumer_staples",
+    "PEP": "consumer_staples", "COST": "consumer_staples", "CL": "consumer_staples",
+    "MO": "consumer_staples", "GIS": "consumer_staples",
+    # Industrials
+    "CAT": "industrial", "BA": "industrial", "UPS": "industrial",
+    "HON": "industrial", "UNP": "industrial", "RTX": "industrial",
+    "DE": "industrial", "GE": "industrial", "LMT": "industrial", "MMM": "industrial",
+    # Energy
+    "XOM": "energy", "CVX": "energy", "COP": "energy",
+    "SLB": "energy", "EOG": "energy", "MPC": "energy",
+    # Utilities
+    "NEE": "utilities", "DUK": "utilities", "SO": "utilities", "D": "utilities",
+    # Real Estate
+    "AMT": "real_estate", "PLD": "real_estate", "CCI": "real_estate", "EQIX": "real_estate",
+    # Materials
+    "LIN": "materials", "APD": "materials", "SHW": "materials", "ECL": "materials",
+    # Communication
+    "DIS": "communication", "CMCSA": "communication", "NFLX": "communication", "T": "communication",
 }
 
 
