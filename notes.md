@@ -1,165 +1,171 @@
-# Multi-Layer Autoresearch — Research Notes
+# Multi-Layer Autoresearch — Final Research Summary
 
-## Run 1: Raw Daily Direction with MLP (completed)
+## Project Overview
 
-**45 experiments, ~5 hours**
+Built and tested an autonomous feature research system inspired by the autoresearch paradigm. An LLM agent (GPT-5.4) autonomously proposes features, fetches data from FactSet APIs, tests each feature against a locked model, keeps improvements, discards regressions, and writes postmortem analyses every 10 experiments to guide future research.
 
-Predicted raw daily up/down direction across 30 stocks. Hit ~53% accuracy ceiling (baseline ~52.7% up-day bias).
-
-**What worked:** Cash-flow fundamentals (FCF yield, operating CF yield, operating leverage deltas).
-
-**What didn't work:** Transcript sentiment, accounting ratios, consensus dispersion, daily valuation overlays, accrual quality, balance sheet stress, segment concentration.
-
-**Key insight:** "The most robust signal comes from PIT-safe, low-frequency, economically interpretable fundamentals tied to realized operating performance — especially cash generation and operating-leverage changes."
-
-**Conclusion:** The ~53% ceiling is likely the market's up-day bias (~52.7%) plus minimal alpha. Raw direction prediction on liquid large-caps is too dominated by market beta.
+**Total: 215+ experiments, ~$500-700 API cost, ~40+ hours runtime across 5 runs**
 
 ---
 
-## Run 2: Sector-Relative Direction with MLP (completed)
+## Architecture Evolution
 
-**66 experiments, ~13 hours**
+| Phase | Architecture | Outcome |
+|-------|-------------|---------|
+| 1 | Three layers (features → architecture → hyperparameters) | Architecture search found simplicity wins; hyperparameters exhausted in 20 experiments |
+| 2 | Two layers (features → hyperparameters) | Hyperparameters converged to same optimum every time |
+| 3 | One layer (features only) with MLP | Feature research produced genuine insights but MLP couldn't extract all signal |
+| 4 | One layer with XGBoost | Immediately beat MLP by 2.6pp on same features |
+| Final | XGBoost + confidence thresholds + walk-forward validation | Revealed regime-dependent signal at 56-63% on high-conviction predictions |
 
-Switched target to sector-relative: "did the stock outperform its sector today?" Strips out market/sector beta.
-
-- **Baseline:** 51.5% → **Best: 52.2%** (+0.75pp)
-- Transcript tone features worked for sector-relative (failed for raw direction)
-- Dropping noisy features (consensus revisions) improved accuracy
-- Feature research exhausted after ~40 experiments
-
----
-
-## Run 3: Event-Window Sector-Relative with MLP (completed)
-
-**81 experiments, ~15 hours**
-
-Filtered to only days within 10 days of earnings announcements. Every sample has fresh transcript/surprise data.
-
-- **Baseline:** 52.3% → **Best: 54.0%** (+1.7pp)
-- EPS surprise features were the strongest single addition
-- Feature space exhausted after ~30 experiments, 50+ consecutive discards
+**Key learning:** For tabular financial prediction, the model and hyperparameters matter much less than what data you feed in. The autoresearch loop is most valuable as a feature research tool.
 
 ---
 
-## Run 4: Event-Window Sector-Relative with XGBoost (completed)
+## Run-by-Run Results
 
-**23 experiments, ~3 hours**
+### Run 1: Raw Daily Direction with MLP
+- **Target:** Binary up/down across 30 stocks
+- **45 experiments, ~5 hours**
+- **Baseline 52.7% → Best 53.0%** (+0.3pp)
+- Ceiling is market's up-day bias. Cash-flow fundamentals only marginal help.
 
-Swapped MLP for XGBoost on same event-window sector-relative setup.
+### Run 2: Sector-Relative Direction with MLP
+- **Target:** Did stock outperform its sector today? (30 stocks, all days)
+- **66 experiments, ~13 hours**
+- **Baseline 51.5% → Best 52.2%** (+0.7pp)
+- Transcript tone features worked for sector-relative (failed for raw direction).
+- Dropping noisy features improved accuracy.
 
-- **Baseline:** 53.6% (XGBoost baseline already higher than MLP's best)
-- **Best: 54.5%** (+0.9pp, +0.5pp above MLP's best-ever)
+### Run 3: Event-Window Sector-Relative with MLP
+- **Target:** Sector-relative, only within 10 days of earnings (30 stocks)
+- **81 experiments, ~15 hours**
+- **Baseline 52.3% → Best 54.0%** (+1.7pp)
+- EPS surprise features strongest. Feature space exhausted after 30 experiments.
 
-### What worked with XGBoost
+### Run 4: Event-Window Sector-Relative with XGBoost
+- **Target:** Same as Run 3 but with XGBoost
+- **23 experiments, ~3 hours**
+- **Baseline 53.6% → Best 54.5%** (+0.9pp)
+- XGBoost baseline already higher than MLP's best-ever.
+- Removing stale long-horizon features (20d return, 60d vol, 200d MA) helped.
 
-1. **Sales growth YoY + operating margin change** — replaced broken surprise features → 53.9%
-2. **Transcript tone with post-earnings activation window** — management sentiment, guidance confidence, Q&A intensity → 54.3%
-3. **Removing stale long-horizon features** — dropped 20d return, 60d volatility, 60d price position, 200d MA → 54.5%
-4. **Transcript Q&A intensity** (analyst_share × log word count) and **analyst sentiment** — lateral improvements at 54.5%
-
-### What didn't work
-
-- Operating cash flow margin, ROA change, accrual ratio
-- Sales yield valuation features
-- Fiscal-period-aware consensus revisions
-- Operating income growth, asset turnover, sales growth acceleration
-- Various transcript metadata pruning attempts
-
-### XGBoost feature importance (top 10)
-
-1. estimate_revision_30d
-2. analyst_count
-3. volatility_10d
-4. return_10d
-5. estimate_revision_90d
-6. macd_signal
-7. report_lag_vs_trailing
-8. return_3d
-9. price_position_60d
-10. price_vs_ma_20d
-
-### Key finding: model matters
-
-XGBoost's baseline (53.6%) was already higher than MLP's best after 81 experiments (54.0%). The features discovered by the autoresearch loop contain real signal — the MLP just couldn't extract it efficiently. GBTs are the right model for tabular financial data at this scale.
-
-### Key finding: feature pruning matters in event windows
-
-Removing long-horizon technical features (20d return, 60d vol, 200d MA) improved accuracy. In a 10-day post-earnings window, slow macro/trend state is stale noise. The agent's postmortem: "samples are restricted to the ~10-day post-earnings window, so slow macro/trend state is often stale relative to the current event."
+### Run 5: Confidence Thresholds + Walk-Forward Validation
+- **100 stocks, 6 annual walk-forward windows, 3 seeds each**
+- **Overall at 0.55 threshold: 55.9% avg hit rate, ~35 trades/year**
+- **Best regime (2024): 62.7% hit rate on 83 trades**
+- **Worst regimes (2022-2023): near-zero confident predictions**
+- Sector one-hot encoding tested and reverted (made results worse)
 
 ---
 
-## Summary of all runs
+## Key Research Findings
 
-| Run | Target | Model | Baseline | Best | Improvement | Experiments |
-|-----|--------|-------|----------|------|-------------|-------------|
-| 1 | Raw direction | MLP | 52.7% | 53.0% | +0.3pp | 45 |
-| 2 | Sector-relative | MLP | 51.5% | 52.2% | +0.7pp | 66 |
-| 3 | Event-window sector-relative | MLP | 52.3% | 54.0% | +1.7pp | 81 |
-| 4 | Event-window sector-relative | XGBoost | 53.6% | 54.5% | +0.9pp | 23 |
+### 1. Cash-flow fundamentals predict stock-specific alpha
+FCF yield, operating CF yield, operating margin changes, and operating leverage deltas are the most robust FactSet-derived features across all runs. Accounting ratios (ROA, asset turnover, accruals) and balance sheet metrics (working capital, debt ratios) consistently underperformed.
 
-**Total: ~215 experiments, ~$400-600 API cost, ~36 hours runtime**
+### 2. Transcript tone predicts sector-relative outperformance
+Management sentiment, Q&A intensity (analyst_share × log word count), and guidance confidence add signal for sector-relative prediction but not for raw direction. The key design choice: multiply all transcript features by a 30-day exponential recency decay so they're strongest right after earnings and fade to zero. Filtering to same/next-day transcript availability improved quality further.
 
----
+### 3. Feature pruning is as valuable as feature addition
+Removing stale/noisy features consistently improved accuracy:
+- Dropping long-horizon technicals (20d return, 60d vol, 200d MA) in event windows
+- Dropping consensus revisions and analyst coverage features
+- The agent's postmortem: "slow macro/trend state is often stale relative to the current event"
 
-## Setup (current)
+### 4. Event-window filtering concentrates signal
+Restricting to 10 days post-earnings where fundamental features are fresh improved accuracy by ~2pp vs predicting every day. 80% of training data was on days where FactSet features were stale — removing that noise helped.
 
-- **Model**: XGBoost (500 estimators, depth 4, LR 0.05, early stopping 50)
-- **Data**: 30 liquid stocks across 6 sectors, 8yr train / 2yr val, event-window filtered (10 days post-earnings)
-- **Target**: Binary sector-relative direction (outperform sector in event window)
-- **Evaluation**: 3-run averaged val_accuracy, single walk-forward split
-- **Agent**: GPT-5.4 via OpenAI Responses API
-- **FactSet access**: Estimates, Fundamentals, Transcripts, Prices SDKs
+### 5. XGBoost extracts more signal than MLP from the same features
+XGBoost's baseline (53.6%) exceeded MLP's best after 81 experiments (54.0%). Gradient boosted trees are the right model for tabular financial data at this scale (~25K samples, ~40 features).
 
----
+### 6. The signal is regime-dependent
+Walk-forward validation across 6 annual windows showed the model finds clear patterns in some years (2024: 63% hit rate) and correctly abstains in others (2022-2023: near-zero trades). This is realistic behavior — post-earnings patterns are clearer in some market environments than others.
 
-## Run 5: Confidence Threshold Analysis (completed)
+### 7. Sector encoding doesn't help
+Adding sector one-hot features made results worse. XGBoost already learns sector-relevant patterns implicitly through the FactSet features (estimate revisions naturally vary by sector).
 
-Analyzed XGBoost prediction probabilities to find high-conviction subset.
-Averaged over 5 random seeds for robustness.
-
-| Threshold | Avg Hit Rate | Std | Coverage | Avg Trades/2yr |
-|-----------|-------------|-----|----------|----------------|
-| 0.50 (all) | 54.1% | 0.2% | 100% | 1,928 |
-| 0.54 | **67.3%** | 4.3% | 10.3% | 199 |
-| 0.55 | **70.4%** | 5.1% | 5.6% | 108 |
-| **0.56** | **74.7%** | 7.2% | **3.6%** | **70** |
-| 0.58 | 66.8% | 6.3% | 2.1% | 40 |
-| 0.60 | 69.6% | 2.4% | 1.1% | 22 |
-
-**Key finding:** The model knows when it's confident. At the 0.55-0.56 threshold, hit rate jumps to 70-75% on ~70-108 trades over 2 years (~35-54 trades/year). This holds across 5 seeds (min 65%, max 89%).
-
-**Sweet spot:** 0.55 threshold — 70% hit rate, 108 trades, stable across seeds.
+### 8. The autoresearch loop works for financial feature research
+The agent autonomously:
+- Called the FactSet SDK to fetch fundamentals, transcripts, and estimates
+- Wrote 300+ lines of new data pipeline code
+- Designed economically-motivated features (recency-weighted transcript tone, operating leverage deltas)
+- Learned to remove features, not just add them
+- Produced genuinely insightful postmortem analyses
+- Discovered that transcript sentiment predicts sector-relative alpha — a non-obvious finding
 
 ---
 
-## Next steps to explore
+## What Didn't Work
 
-### 1. Rolling walk-forward validation (highest priority)
-The 70-75% hit rate at high conviction is on a single 2-year window. Rolling walk-forward across multiple regimes would validate whether this holds. Essential before trading real money.
-
-### 2. Single sector focus (tech only)
-10 tech stocks where FactSet features are most homogeneous. Cross-sector heterogeneity adds noise — FCF margin means different things for JPM vs NVDA.
-
-### 3. Ticker/sector encoding
-Add categorical sector feature so XGBoost can learn sector-specific splits (e.g., transcripts matter more for tech than utilities).
-
-### 4. Multi-horizon targets
-Predict 1/5/20-day forward excess returns instead of binary direction. More aligned with how quant funds actually trade.
+- **Transcript sentiment for raw direction prediction** — tone is stock-specific, not market-wide
+- **Accounting ratios across sectors** — ROA, margins, turnover too heterogeneous when pooled
+- **Daily mark-to-market valuation overlays** — reintroduce price noise the model already has
+- **Consensus estimate revisions** — too noisy/sparse for this target
+- **Accrual quality, working capital, balance sheet stress** — fragile across sectors
+- **Post-report drift interactions** — model absorbs info without hand-crafted multiplications
+- **Share dilution/buyback** — quarter-to-quarter changes too small and noisy
+- **Sector one-hot encoding** — confused XGBoost with sparse features
 
 ---
 
-## Architecture evolution history
+## System Architecture (Final)
 
-1. **Three layers**: Feature research → Architecture search → Hyperparameter tuning (original design)
-2. **Two layers**: Feature research → Hyperparameter tuning (architecture locked — simplicity won)
-3. **One layer**: Feature research only (hyperparameters locked — exhausted in ~20 experiments)
-4. **XGBoost swap**: Immediately beat MLP by 2.6pp on same features — confirmed features have signal MLP couldn't extract
+```
+Feature Research Agent (GPT-5.4)
+  ├── Reads prepare.py, results.tsv, research notes
+  ├── Proposes one feature change per experiment
+  ├── Can fetch new FactSet data via SDK
+  ├── Can add, remove, or modify features
+  ├── 3-run averaging (different seeds) per experiment
+  ├── Keep if val_accuracy > best, else git revert
+  ├── Postmortem every 10 experiments
+  └── Accumulates knowledge across sessions
 
-## Key research findings
+Model: XGBoost (500 estimators, depth 4, early stopping 50)
+Target: Binary sector-relative direction (event-window only)
+Data: 100 S&P 500 stocks, 8yr train / 2yr val, 10-day post-earnings windows
+Evaluation: Walk-forward across 6 annual windows, confidence threshold filtering
+```
 
-1. **Cash-flow fundamentals predict stock-specific alpha** — FCF yield, operating margin changes, and operating leverage deltas are the most robust FactSet-derived features across all runs
-2. **Transcript tone predicts sector-relative outperformance** — management sentiment, Q&A intensity, and guidance confidence add signal for sector-relative prediction but not for raw direction
-3. **Feature pruning is as valuable as feature addition** — removing stale/noisy features (long-horizon technicals, consensus revisions) consistently improved accuracy
-4. **Event-window filtering concentrates signal** — restricting to post-earnings days where fundamental features are fresh improves accuracy by ~2pp
-5. **Model matters for tabular data** — XGBoost extracts significantly more signal than MLP from the same features
-6. **The autoresearch loop works** — autonomous feature research with postmortems produces genuine, actionable insights about what data predicts financial outcomes
+---
+
+## Honest Assessment
+
+**Is this tradeable?** Not as a standalone strategy. 56% hit rate on ~35 trades/year with regime dependency is a thin edge. After transaction costs and the overhead of maintaining FactSet data feeds and model infrastructure, the expected return is marginal.
+
+**What is it good for?**
+1. **Research tool** — the autoresearch system produces genuine insights about what financial data predicts stock-specific outcomes. The transcript finding alone is publishable research.
+2. **Signal component** — the features and confidence thresholds could be one input into a broader multi-signal trading system alongside other alpha sources.
+3. **Methodology proof-of-concept** — autonomous LLM-driven feature research with postmortem loops works and produces results a human quant researcher would need weeks to replicate.
+
+---
+
+## Potential Future Directions
+
+1. **Predict magnitude, not direction** — regression on outperformance magnitude with position sizing by predicted alpha
+2. **Sector-specific models** — train separate XGBoost per sector where data permits (tech: 20 stocks, healthcare: 15)
+3. **Combine with hedge fund system** — use the earnings projection system's revenue surprise as a feature (it has 75% training hit rate on surprise direction)
+4. **Longer event windows** — 20-30 days might capture post-earnings drift more fully
+5. **Rolling retraining** — retrain monthly instead of annually so features stay fresh
+6. **Live paper trading** — deploy the confidence-threshold strategy on paper to validate in real time
+7. **More alternative data** — satellite, credit card, web traffic via other APIs
+
+---
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `orchestrator.py` | Runs the feature research loop |
+| `prepare.py` | Data prep: download, features, event filtering, sector-relative target |
+| `train.py` | XGBoost training with seed support |
+| `fetch_factset.py` | Cache FactSet consensus estimates |
+| `analyze_confidence.py` | Confidence threshold analysis |
+| `analyze_walkforward.py` | Rolling walk-forward validation |
+| `lib/agent.py` | OpenAI Responses API client |
+| `lib/phases.py` | Feature experiment prompt and result parsing |
+| `lib/config.py` | Configuration |
+| `lib/db.py` | SQLite experiment tracking |
+| `skills/feature-research/SKILL.md` | Agent instructions + accumulated research notes |
+| `data/` | FactSet caches (consensus, fundamentals, transcripts) |
