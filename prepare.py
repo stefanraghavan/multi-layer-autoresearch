@@ -227,12 +227,16 @@ def compute_factset_features(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
         "analyst_count", "last_surprise_pct", "avg_surprise_pct",
     ]
 
-    # Try to load cached FactSet data
+    # Try to load cached FactSet data (check DATA_DIR and repo data/)
     cache_path = DATA_DIR / ticker.lower() / "factset_cache.json"
     if not cache_path.exists():
-        for col in factset_cols:
-            features[col] = 0.0
-        return features
+        repo_path = Path(__file__).parent / "data" / ticker.lower() / "factset_cache.json"
+        if repo_path.exists():
+            cache_path = repo_path
+        else:
+            for col in factset_cols:
+                features[col] = 0.0
+            return features
 
     try:
         cache = json.loads(cache_path.read_text())
@@ -374,10 +378,16 @@ def get_earnings_dates(ticker: str) -> list[pd.Timestamp]:
     """Extract earnings announcement dates from FactSet fundamentals cache.
 
     Uses eps_report_date from the quarterly fundamentals data.
+    Checks both DATA_DIR and the repo-level data/ directory.
     """
     cache_path = DATA_DIR / ticker.lower() / "factset_fundamentals_qtr.json"
     if not cache_path.exists():
-        return []
+        # Fallback: check repo-level data/ directory
+        repo_path = Path(__file__).parent / "data" / ticker.lower() / "factset_fundamentals_qtr.json"
+        if repo_path.exists():
+            cache_path = repo_path
+        else:
+            return []
 
     try:
         data = json.loads(cache_path.read_text())
